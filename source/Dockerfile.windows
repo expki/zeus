@@ -1,0 +1,160 @@
+FROM mstorsjo/llvm-mingw:latest
+
+# Install build tools and Vulkan dependencies
+# libvulkan-dev provides headers (platform-independent)
+# glslc compiles shaders to SPIR-V (works for all targets)
+RUN apt-get update && apt-get install -y \
+    make \
+    wget \
+    p7zip-full \
+    glslc \
+    libvulkan-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy Vulkan headers to mingw sysroot for cross-compilation
+RUN cp -r /usr/include/vulkan /opt/llvm-mingw/x86_64-w64-mingw32/include/ && \
+    cp -r /usr/include/vk_video /opt/llvm-mingw/x86_64-w64-mingw32/include/
+
+# Create vulkan-1 import library with all functions used by ggml-vulkan
+# The actual vulkan-1.dll is provided by the user's GPU driver at runtime
+COPY <<'VULKAN_DEF' /tmp/vulkan-1.def
+LIBRARY vulkan-1.dll
+EXPORTS
+    vkGetInstanceProcAddr
+    vkGetDeviceProcAddr
+    vkCreateInstance
+    vkDestroyInstance
+    vkEnumeratePhysicalDevices
+    vkEnumerateInstanceExtensionProperties
+    vkEnumerateInstanceLayerProperties
+    vkEnumerateDeviceExtensionProperties
+    vkGetPhysicalDeviceProperties
+    vkGetPhysicalDeviceProperties2
+    vkGetPhysicalDeviceFeatures
+    vkGetPhysicalDeviceFeatures2
+    vkGetPhysicalDeviceMemoryProperties
+    vkGetPhysicalDeviceQueueFamilyProperties
+    vkCreateDevice
+    vkDestroyDevice
+    vkGetDeviceQueue
+    vkQueueSubmit
+    vkQueueWaitIdle
+    vkDeviceWaitIdle
+    vkAllocateMemory
+    vkFreeMemory
+    vkMapMemory
+    vkUnmapMemory
+    vkFlushMappedMemoryRanges
+    vkInvalidateMappedMemoryRanges
+    vkBindBufferMemory
+    vkBindImageMemory
+    vkGetBufferMemoryRequirements
+    vkGetImageMemoryRequirements
+    vkCreateBuffer
+    vkDestroyBuffer
+    vkCreateBufferView
+    vkDestroyBufferView
+    vkCreateImage
+    vkDestroyImage
+    vkCreateImageView
+    vkDestroyImageView
+    vkCreateShaderModule
+    vkDestroyShaderModule
+    vkCreatePipelineCache
+    vkDestroyPipelineCache
+    vkCreateGraphicsPipelines
+    vkCreateComputePipelines
+    vkDestroyPipeline
+    vkCreatePipelineLayout
+    vkDestroyPipelineLayout
+    vkCreateSampler
+    vkDestroySampler
+    vkCreateDescriptorSetLayout
+    vkDestroyDescriptorSetLayout
+    vkCreateDescriptorPool
+    vkDestroyDescriptorPool
+    vkResetDescriptorPool
+    vkAllocateDescriptorSets
+    vkFreeDescriptorSets
+    vkUpdateDescriptorSets
+    vkCreateFramebuffer
+    vkDestroyFramebuffer
+    vkCreateRenderPass
+    vkDestroyRenderPass
+    vkCreateCommandPool
+    vkDestroyCommandPool
+    vkResetCommandPool
+    vkAllocateCommandBuffers
+    vkFreeCommandBuffers
+    vkBeginCommandBuffer
+    vkEndCommandBuffer
+    vkResetCommandBuffer
+    vkCmdBindPipeline
+    vkCmdSetViewport
+    vkCmdSetScissor
+    vkCmdBindDescriptorSets
+    vkCmdBindIndexBuffer
+    vkCmdBindVertexBuffers
+    vkCmdDraw
+    vkCmdDrawIndexed
+    vkCmdDispatch
+    vkCmdCopyBuffer
+    vkCmdCopyImage
+    vkCmdBlitImage
+    vkCmdCopyBufferToImage
+    vkCmdCopyImageToBuffer
+    vkCmdUpdateBuffer
+    vkCmdFillBuffer
+    vkCmdClearColorImage
+    vkCmdClearDepthStencilImage
+    vkCmdClearAttachments
+    vkCmdPipelineBarrier
+    vkCmdBeginRenderPass
+    vkCmdNextSubpass
+    vkCmdEndRenderPass
+    vkCmdExecuteCommands
+    vkCmdPushConstants
+    vkCreateFence
+    vkDestroyFence
+    vkResetFences
+    vkGetFenceStatus
+    vkWaitForFences
+    vkCreateSemaphore
+    vkDestroySemaphore
+    vkCreateEvent
+    vkDestroyEvent
+    vkGetEventStatus
+    vkSetEvent
+    vkResetEvent
+    vkCreateQueryPool
+    vkDestroyQueryPool
+    vkGetQueryPoolResults
+    vkCmdResetQueryPool
+    vkCmdBeginQuery
+    vkCmdEndQuery
+    vkCmdWriteTimestamp
+    vkGetPhysicalDeviceFormatProperties
+    vkGetPhysicalDeviceImageFormatProperties
+    vkGetPhysicalDeviceSparseImageFormatProperties
+    vkQueueBindSparse
+    vkGetBufferMemoryRequirements2
+    vkGetImageMemoryRequirements2
+    vkBindBufferMemory2
+    vkBindImageMemory2
+    vkGetDeviceBufferMemoryRequirements
+    vkGetDeviceImageMemoryRequirements
+    vkCmdDispatchIndirect
+    vkCmdDrawIndirect
+    vkCmdDrawIndexedIndirect
+VULKAN_DEF
+
+RUN x86_64-w64-mingw32-dlltool -d /tmp/vulkan-1.def -l /opt/llvm-mingw/x86_64-w64-mingw32/lib/libvulkan-1.a && \
+    rm /tmp/vulkan-1.def
+
+WORKDIR /build
+
+# Copy source files
+COPY . .
+
+# Build target with mingw cross-compiler
+CMD ["sh", "-c", "make libbinding.a CC=x86_64-w64-mingw32-gcc CXX=x86_64-w64-mingw32-g++ AR=x86_64-w64-mingw32-ar"]

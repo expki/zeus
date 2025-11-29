@@ -1,0 +1,165 @@
+FROM mstorsjo/llvm-mingw:latest
+
+# Install build tools, Vulkan dependencies, and Go
+RUN apt-get update && apt-get install -y \
+    make \
+    wget \
+    cmake \
+    glslc \
+    libvulkan-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    && wget -q https://go.dev/dl/go1.25.4.linux-amd64.tar.gz \
+    && tar -C /usr/local -xzf go1.25.4.linux-amd64.tar.gz \
+    && rm go1.25.4.linux-amd64.tar.gz
+
+ENV PATH="/usr/local/go/bin:${PATH}"
+ENV GOROOT="/usr/local/go"
+ENV GOTOOLCHAIN=auto
+
+# Copy Vulkan headers to mingw sysroot for cross-compilation
+RUN cp -r /usr/include/vulkan /opt/llvm-mingw/x86_64-w64-mingw32/include/ && \
+    cp -r /usr/include/vk_video /opt/llvm-mingw/x86_64-w64-mingw32/include/
+
+# Create vulkan-1 import library with all functions used by ggml-vulkan
+# The actual vulkan-1.dll is provided by the user's GPU driver at runtime
+COPY <<'VULKAN_DEF' /tmp/vulkan-1.def
+LIBRARY vulkan-1.dll
+EXPORTS
+    vkGetInstanceProcAddr
+    vkGetDeviceProcAddr
+    vkCreateInstance
+    vkDestroyInstance
+    vkEnumeratePhysicalDevices
+    vkEnumerateInstanceExtensionProperties
+    vkEnumerateInstanceLayerProperties
+    vkEnumerateDeviceExtensionProperties
+    vkGetPhysicalDeviceProperties
+    vkGetPhysicalDeviceProperties2
+    vkGetPhysicalDeviceFeatures
+    vkGetPhysicalDeviceFeatures2
+    vkGetPhysicalDeviceMemoryProperties
+    vkGetPhysicalDeviceQueueFamilyProperties
+    vkCreateDevice
+    vkDestroyDevice
+    vkGetDeviceQueue
+    vkQueueSubmit
+    vkQueueWaitIdle
+    vkDeviceWaitIdle
+    vkAllocateMemory
+    vkFreeMemory
+    vkMapMemory
+    vkUnmapMemory
+    vkFlushMappedMemoryRanges
+    vkInvalidateMappedMemoryRanges
+    vkBindBufferMemory
+    vkBindImageMemory
+    vkGetBufferMemoryRequirements
+    vkGetImageMemoryRequirements
+    vkCreateBuffer
+    vkDestroyBuffer
+    vkCreateBufferView
+    vkDestroyBufferView
+    vkCreateImage
+    vkDestroyImage
+    vkCreateImageView
+    vkDestroyImageView
+    vkCreateShaderModule
+    vkDestroyShaderModule
+    vkCreatePipelineCache
+    vkDestroyPipelineCache
+    vkCreateGraphicsPipelines
+    vkCreateComputePipelines
+    vkDestroyPipeline
+    vkCreatePipelineLayout
+    vkDestroyPipelineLayout
+    vkCreateSampler
+    vkDestroySampler
+    vkCreateDescriptorSetLayout
+    vkDestroyDescriptorSetLayout
+    vkCreateDescriptorPool
+    vkDestroyDescriptorPool
+    vkResetDescriptorPool
+    vkAllocateDescriptorSets
+    vkFreeDescriptorSets
+    vkUpdateDescriptorSets
+    vkCreateFramebuffer
+    vkDestroyFramebuffer
+    vkCreateRenderPass
+    vkDestroyRenderPass
+    vkCreateCommandPool
+    vkDestroyCommandPool
+    vkResetCommandPool
+    vkAllocateCommandBuffers
+    vkFreeCommandBuffers
+    vkBeginCommandBuffer
+    vkEndCommandBuffer
+    vkResetCommandBuffer
+    vkCmdBindPipeline
+    vkCmdSetViewport
+    vkCmdSetScissor
+    vkCmdBindDescriptorSets
+    vkCmdBindIndexBuffer
+    vkCmdBindVertexBuffers
+    vkCmdDraw
+    vkCmdDrawIndexed
+    vkCmdDispatch
+    vkCmdCopyBuffer
+    vkCmdCopyImage
+    vkCmdBlitImage
+    vkCmdCopyBufferToImage
+    vkCmdCopyImageToBuffer
+    vkCmdUpdateBuffer
+    vkCmdFillBuffer
+    vkCmdClearColorImage
+    vkCmdClearDepthStencilImage
+    vkCmdClearAttachments
+    vkCmdPipelineBarrier
+    vkCmdBeginRenderPass
+    vkCmdNextSubpass
+    vkCmdEndRenderPass
+    vkCmdExecuteCommands
+    vkCmdPushConstants
+    vkCreateFence
+    vkDestroyFence
+    vkResetFences
+    vkGetFenceStatus
+    vkWaitForFences
+    vkCreateSemaphore
+    vkDestroySemaphore
+    vkCreateEvent
+    vkDestroyEvent
+    vkGetEventStatus
+    vkSetEvent
+    vkResetEvent
+    vkCreateQueryPool
+    vkDestroyQueryPool
+    vkGetQueryPoolResults
+    vkCmdResetQueryPool
+    vkCmdBeginQuery
+    vkCmdEndQuery
+    vkCmdWriteTimestamp
+    vkGetPhysicalDeviceFormatProperties
+    vkGetPhysicalDeviceImageFormatProperties
+    vkGetPhysicalDeviceSparseImageFormatProperties
+    vkQueueBindSparse
+    vkGetBufferMemoryRequirements2
+    vkGetImageMemoryRequirements2
+    vkBindBufferMemory2
+    vkBindImageMemory2
+    vkGetDeviceBufferMemoryRequirements
+    vkGetDeviceImageMemoryRequirements
+    vkCmdDispatchIndirect
+    vkCmdDrawIndirect
+    vkCmdDrawIndexedIndirect
+VULKAN_DEF
+
+RUN x86_64-w64-mingw32-dlltool -d /tmp/vulkan-1.def -l /opt/llvm-mingw/x86_64-w64-mingw32/lib/libvulkan-1.a && \
+    rm /tmp/vulkan-1.def
+
+WORKDIR /build
+
+# Copy the entire zeus example source
+COPY . .
+
+# Build target
+CMD ["sh", "-c", "CGO_ENABLED=1 GOOS=windows GOARCH=amd64 GOAMD64=v3 CC=x86_64-w64-mingw32-gcc CXX=x86_64-w64-mingw32-g++ go build -o /output/example.exe ."]

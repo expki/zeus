@@ -1,0 +1,18 @@
+# target older distro for wider glibc compatibility
+FROM golang:bookworm
+
+# Install build dependencies for both C++ libraries and Go
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    cmake \
+    libvulkan-dev \
+    glslc \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+# Copy the entire zeus example source
+COPY . .
+
+# Build target
+CMD ["sh", "-c", "CGO_ENABLED=1 GOOS=linux GOARCH=amd64 GOAMD64=v3 go build -o /output/example ."]

@@ -1,0 +1,16 @@
+# target older distro for wider glibc compatibility
+FROM gcc:bookworm
+
+RUN apt-get update && apt-get install -y \
+    cmake \
+    libvulkan-dev \
+    glslc \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+# Copy source files
+COPY . .
+
+# Build target
+CMD ["make", "libbinding.a"]
