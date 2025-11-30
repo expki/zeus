@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    container:
+      image: golang:latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install dependencies
+        run: apt-get update && apt-get install -y libvulkan-dev
+
+      - name: Run tests
+        env:
+          CGO_ENABLED: 1
+        run: go test -v -race ./...
