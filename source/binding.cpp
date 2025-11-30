@@ -2,6 +2,7 @@
 
 #include "llama.h"
 #include "binding.h"
+#include "chat.h"
 
 #include <cmath>
 #include <cstdio>
@@ -1312,4 +1313,237 @@ binding_result binding_get_embeddings_batch(
     }
 
     return BINDING_OK;
+}
+
+// ============================================================================
+// Tool Call Parsing
+// ============================================================================
+
+binding_parse_result* binding_parse_tool_calls(
+    const char* response,
+    int32_t format,
+    bool is_partial
+) {
+    auto* result = new binding_parse_result();
+    result->content = nullptr;
+    result->reasoning_content = nullptr;
+    result->tool_calls = nullptr;
+    result->tool_call_count = 0;
+    result->success = false;
+
+    if (response == nullptr) {
+        return result;
+    }
+
+    try {
+        // Set up syntax for parsing
+        common_chat_syntax syntax;
+        syntax.format = static_cast<common_chat_format>(format);
+        syntax.reasoning_format = COMMON_REASONING_FORMAT_NONE;
+        syntax.reasoning_in_content = false;
+        syntax.thinking_forced_open = false;
+        syntax.parse_tool_calls = true;
+
+        // Parse the response
+        common_chat_msg parsed = common_chat_parse(response, is_partial, syntax);
+
+        // Copy content
+        result->content = strdup(parsed.content.c_str());
+
+        // Copy reasoning content if present
+        if (!parsed.reasoning_content.empty()) {
+            result->reasoning_content = strdup(parsed.reasoning_content.c_str());
+        }
+
+        // Copy tool calls
+        result->tool_call_count = static_cast<int32_t>(parsed.tool_calls.size());
+        if (result->tool_call_count > 0) {
+            result->tool_calls = new binding_tool_call[result->tool_call_count];
+            for (int32_t i = 0; i < result->tool_call_count; i++) {
+                result->tool_calls[i].name = strdup(parsed.tool_calls[i].name.c_str());
+                result->tool_calls[i].arguments = strdup(parsed.tool_calls[i].arguments.c_str());
+                result->tool_calls[i].id = strdup(parsed.tool_calls[i].id.c_str());
+            }
+        }
+
+        result->success = true;
+    } catch (const std::exception& e) {
+        if (g_verbose) {
+            fprintf(stderr, "binding: parse_tool_calls error: %s\n", e.what());
+        }
+        // Return empty result on error
+        result->content = strdup(response);  // Keep original content on error
+    } catch (...) {
+        result->content = strdup(response);  // Keep original content on error
+    }
+
+    return result;
+}
+
+void binding_free_parse_result(binding_parse_result* result) {
+    if (result == nullptr) {
+        return;
+    }
+
+    free((void*)result->content);
+    free((void*)result->reasoning_content);
+
+    if (result->tool_calls != nullptr) {
+        for (int32_t i = 0; i < result->tool_call_count; i++) {
+            free((void*)result->tool_calls[i].name);
+            free((void*)result->tool_calls[i].arguments);
+            free((void*)result->tool_calls[i].id);
+        }
+        delete[] result->tool_calls;
+    }
+
+    delete result;
+}
+
+const char* binding_chat_format_name(int32_t format) {
+    return common_chat_format_name(static_cast<common_chat_format>(format));
+}
+
+// ============================================================================
+// Tool Template Application
+// ============================================================================
+
+binding_chat_params* binding_apply_chat_template_with_tools(
+    void* model,
+    const binding_chat_message* messages,
+    int32_t message_count,
+    const binding_chat_tool_def* tools,
+    int32_t tool_count,
+    binding_tool_choice tool_choice,
+    bool parallel_tool_calls,
+    bool add_generation_prompt
+) {
+    auto* result = new binding_chat_params();
+    result->prompt = nullptr;
+    result->grammar = nullptr;
+    result->format = 0;  // CONTENT_ONLY
+    result->grammar_lazy = false;
+    result->grammar_triggers = nullptr;
+    result->trigger_count = 0;
+    result->additional_stops = nullptr;
+    result->stop_count = 0;
+
+    llama_binding_state *state = (llama_binding_state *)model;
+    if (state == nullptr || state->model == nullptr) {
+        result->prompt = strdup("");
+        result->grammar = strdup("");
+        return result;
+    }
+
+    try {
+        // Get model's chat templates (returns unique_ptr)
+        auto tmpls = common_chat_templates_init(state->model, "");
+        if (!tmpls) {
+            result->prompt = strdup("");
+            result->grammar = strdup("");
+            return result;
+        }
+
+        // Build inputs
+        common_chat_templates_inputs inputs;
+        inputs.add_generation_prompt = add_generation_prompt;
+        inputs.use_jinja = true;
+        inputs.parallel_tool_calls = parallel_tool_calls;
+
+        // Convert messages
+        for (int32_t i = 0; i < message_count; i++) {
+            common_chat_msg msg;
+            msg.role = messages[i].role ? messages[i].role : "";
+            msg.content = messages[i].content ? messages[i].content : "";
+            inputs.messages.push_back(msg);
+        }
+
+        // Convert tools
+        for (int32_t i = 0; i < tool_count; i++) {
+            common_chat_tool tool;
+            tool.name = tools[i].name ? tools[i].name : "";
+            tool.description = tools[i].description ? tools[i].description : "";
+            tool.parameters = tools[i].parameters ? tools[i].parameters : "{}";
+            inputs.tools.push_back(tool);
+        }
+
+        // Set tool choice
+        switch (tool_choice) {
+            case BINDING_TOOL_CHOICE_NONE:
+                inputs.tool_choice = COMMON_CHAT_TOOL_CHOICE_NONE;
+                break;
+            case BINDING_TOOL_CHOICE_REQUIRED:
+                inputs.tool_choice = COMMON_CHAT_TOOL_CHOICE_REQUIRED;
+                break;
+            default:
+                inputs.tool_choice = COMMON_CHAT_TOOL_CHOICE_AUTO;
+        }
+
+        // Apply template
+        auto params = common_chat_templates_apply(tmpls.get(), inputs);
+
+        // Copy results
+        result->prompt = strdup(params.prompt.c_str());
+        result->grammar = strdup(params.grammar.c_str());
+        result->format = static_cast<int32_t>(params.format);
+        result->grammar_lazy = params.grammar_lazy;
+
+        // Copy triggers
+        result->trigger_count = static_cast<int32_t>(params.grammar_triggers.size());
+        if (result->trigger_count > 0) {
+            result->grammar_triggers = new const char*[result->trigger_count + 1];
+            for (size_t i = 0; i < params.grammar_triggers.size(); i++) {
+                result->grammar_triggers[i] = strdup(params.grammar_triggers[i].value.c_str());
+            }
+            result->grammar_triggers[result->trigger_count] = nullptr;
+        }
+
+        // Copy stops
+        result->stop_count = static_cast<int32_t>(params.additional_stops.size());
+        if (result->stop_count > 0) {
+            result->additional_stops = new const char*[result->stop_count + 1];
+            for (size_t i = 0; i < params.additional_stops.size(); i++) {
+                result->additional_stops[i] = strdup(params.additional_stops[i].c_str());
+            }
+            result->additional_stops[result->stop_count] = nullptr;
+        }
+
+        // Note: tmpls is a unique_ptr, automatically cleaned up
+    } catch (const std::exception& e) {
+        if (g_verbose) {
+            fprintf(stderr, "binding: apply_chat_template_with_tools error: %s\n", e.what());
+        }
+        if (result->prompt == nullptr) result->prompt = strdup("");
+        if (result->grammar == nullptr) result->grammar = strdup("");
+    } catch (...) {
+        if (result->prompt == nullptr) result->prompt = strdup("");
+        if (result->grammar == nullptr) result->grammar = strdup("");
+    }
+
+    return result;
+}
+
+void binding_free_chat_params(binding_chat_params* params) {
+    if (params == nullptr) {
+        return;
+    }
+
+    free((void*)params->prompt);
+    free((void*)params->grammar);
+
+    if (params->grammar_triggers != nullptr) {
+        for (int32_t i = 0; i < params->trigger_count; i++) {
+            free((void*)params->grammar_triggers[i]);
+        }
+        delete[] params->grammar_triggers;
+    }
+
+    if (params->additional_stops != nullptr) {
+        for (int32_t i = 0; i < params->stop_count; i++) {
+            free((void*)params->additional_stops[i]);
+        }
+        delete[] params->additional_stops;
+    }
+
+    delete params;
 }

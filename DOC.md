@@ -8,10 +8,13 @@ Complete API documentation for the Zeus Go library.
 import "github.com/expki/zeus"
 ```
 
-Zeus provides Go bindings for llama.cpp with three core abstractions:
+Zeus provides Go bindings for llama.cpp with four core abstractions:
 - **Model** - Load and manage GGUF models
 - **Session** - Token-level generation with state tracking
 - **Chat** - Message-level conversations with template support
+- **Tools/Agent** - Function calling and agentic tool execution
+
+---
 
 ## Functions
 
@@ -38,6 +41,7 @@ func DefaultModelConfig() ModelConfig
 func DefaultGenerateConfig() GenerateConfig
 func DefaultChatConfig() ChatConfig
 func DefaultChatTemplateConfig() ChatTemplateConfig
+func DefaultAgentConfig() AgentConfig
 ```
 
 Return configuration structs with sensible default values.
@@ -143,6 +147,7 @@ Represents a conversation that tracks message history. Automatically applies cha
 |--------|---------|-------------|
 | `Generate(ctx context.Context, userMessage string, opts ...GenerateOption)` | `io.ReadCloser` | Send message, stream response as bytes |
 | `GenerateSequence(ctx context.Context, userMessage string, opts ...GenerateOption)` | `iter.Seq2[Token, error]` | Send message, stream tokens via iterator |
+| `GenerateWithTools(ctx context.Context, userMessage string, opts ...GenerateOption)` | `iter.Seq2[AgentEvent, error]` | Agentic loop with automatic tool execution |
 
 ### Message Management
 
@@ -151,6 +156,13 @@ Represents a conversation that tracks message history. Automatically applies cha
 | `AddMessage(role Role, content string)` | - | Add message to history without generating |
 | `Messages()` | `[]ChatMessage` | Copy of message history |
 | `MessageCount()` | `int` | Number of messages in conversation |
+| `Compact(ctx context.Context)` | `error` | Summarize older messages to free context space |
+
+### Tool Management
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `Tools()` | `[]Tool` | Registered tools for this chat |
 
 ### State Management
 
@@ -159,6 +171,56 @@ Represents a conversation that tracks message history. Automatically applies cha
 | `Checkpoint()` | `Chat` | Create snapshot of current chat state |
 | `Backtrack()` | `Chat, bool` | Return to state before last Generate call |
 | `Model()` | `Model` | Parent model reference |
+
+---
+
+## Tool Interface
+
+Implement this interface to create custom tools for agentic function calling.
+
+```go
+type Tool interface {
+    // Name returns the unique identifier for this tool.
+    Name() string
+
+    // Description returns a human-readable description of what this tool does.
+    // This is provided to the model to help it decide when to use the tool.
+    Description() string
+
+    // Parameters returns the list of parameters this tool accepts.
+    Parameters() []ToolParameter
+
+    // Execute runs the tool with the given arguments and returns the result.
+    // The result should be a string that can be fed back to the model.
+    // Return an error if the tool execution fails.
+    Execute(ctx context.Context, args map[string]any) (string, error)
+}
+```
+
+### Example Tool Implementation
+
+```go
+type WeatherTool struct{}
+
+func (t *WeatherTool) Name() string { return "get_weather" }
+
+func (t *WeatherTool) Description() string {
+    return "Get the current weather for a location"
+}
+
+func (t *WeatherTool) Parameters() []zeus.ToolParameter {
+    return []zeus.ToolParameter{
+        {Name: "location", Type: "string", Description: "City name", Required: true},
+        {Name: "units", Type: "string", Description: "Temperature units", Enum: []string{"celsius", "fahrenheit"}},
+    }
+}
+
+func (t *WeatherTool) Execute(ctx context.Context, args map[string]any) (string, error) {
+    location := args["location"].(string)
+    // ... fetch weather data
+    return fmt.Sprintf("Weather in %s: 22°C, sunny", location), nil
+}
+```
 
 ---
 
@@ -206,17 +268,33 @@ Options for `Generate()` and `GenerateSequence()` methods.
 | `WithGrammar(grammar)` | `string` | `""` | GBNF grammar constraint |
 | `WithGenerateSeed(seed)` | `int` | `-1` (random) | Random seed for sampling |
 | `WithThreads(n)` | `int` | `-1` (auto) | CPU threads for generation |
+| `WithReasoningEnabled(enabled)` | `bool` | `true` | Enable model thinking/reasoning output |
 
 ---
 
-## Chat Template Options
+## Chat Options
 
-Options for `ApplyChatTemplate()` and `NewChat()`.
+Options for `NewChat()`.
+
+### Template Options
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `WithChatTemplate(name)` | `string` | `""` (from model) | Built-in template name (chatml, llama3, etc.) |
 | `WithAddAssistant(add)` | `bool` | `true` | Append assistant turn prefix |
+| `WithAutoCompactThreshold(threshold)` | `float32` | `0.8` | Context usage ratio for auto-compaction (0 = disabled) |
+
+### Tool/Agent Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `WithTools(tools...)` | `...Tool` | `nil` | Register tools for GenerateWithTools |
+| `WithMaxIterations(n)` | `int` | `10` | Maximum agentic loop iterations |
+| `WithMaxToolCalls(n)` | `int` | `25` | Maximum total tool calls |
+| `WithToolTimeout(d)` | `time.Duration` | `30s` | Per-tool execution timeout |
+| `WithToolChoice(choice)` | `ToolChoice` | `ToolChoiceAuto` | How the model should use tools |
+| `WithParallelToolCalls(parallel)` | `bool` | `true` | Allow multiple tool calls per response |
+| `WithChatFormat(format)` | `ChatFormat` | auto-detected | Tool call format for parsing |
 
 ---
 
@@ -241,9 +319,9 @@ type TokenProb struct {
 
 // TokenWithLogprobs extends Token with probability information.
 type TokenWithLogprobs struct {
-    Token           // Embedded - ID, Text
-    Prob  float32   // Probability of selected token
-    Logit float32   // Logit of selected token
+    Token             // Embedded - ID, Text
+    Prob  float32     // Probability of selected token
+    Logit float32     // Logit of selected token
     TopK  []TokenProb // Top-K alternative tokens (if requested)
 }
 ```
@@ -258,6 +336,7 @@ const (
     RoleSystem    Role = "system"
     RoleUser      Role = "user"
     RoleAssistant Role = "assistant"
+    RoleTool      Role = "tool"      // Tool result messages
 )
 
 // ChatMessage represents a single message in a conversation.
@@ -265,6 +344,73 @@ type ChatMessage struct {
     Role    Role
     Content string
 }
+```
+
+### Tool Types
+
+```go
+// ToolParameter describes a single parameter for a tool.
+type ToolParameter struct {
+    Name        string   // Parameter name
+    Type        string   // Type: "string", "number", "boolean", "array", "object"
+    Description string   // Human-readable description
+    Required    bool     // Whether this parameter is required
+    Enum        []string // Optional: allowed values for this parameter
+}
+
+// ToolCall represents a tool invocation requested by the model.
+type ToolCall struct {
+    ID        string         // Unique identifier for this call
+    Name      string         // Name of the tool to invoke
+    Arguments map[string]any // Parsed arguments from the model
+}
+
+// ToolResult represents the outcome of executing a tool.
+type ToolResult struct {
+    CallID  string // Corresponds to ToolCall.ID
+    Content string // Result content to feed back to the model
+    IsError bool   // Whether this result represents an error
+}
+
+// ToolChoice controls how the model should use tools.
+type ToolChoice int
+
+const (
+    ToolChoiceAuto     ToolChoice = iota // Model decides when to use tools
+    ToolChoiceNone                       // Never use tools
+    ToolChoiceRequired                   // Must use a tool
+)
+```
+
+### Agent Event Types
+
+```go
+// AgentEventType indicates the type of event during agentic loop execution.
+type AgentEventType int
+
+const (
+    AgentEventToken         AgentEventType = iota // A token was generated
+    AgentEventToolCallStart                       // A tool call is starting
+    AgentEventToolCallEnd                         // A tool call completed
+    AgentEventError                               // An error occurred
+    AgentEventDone                                // The agentic loop completed
+)
+
+// AgentEvent represents an event during agentic loop execution.
+type AgentEvent struct {
+    Type     AgentEventType // Type of event
+    Token    *Token         // For AgentEventToken: the generated token
+    ToolCall *ToolCall      // For AgentEventToolCallStart/End: the tool call
+    Result   *ToolResult    // For AgentEventToolCallEnd: the result
+    Error    error          // For AgentEventError: the error that occurred
+}
+```
+
+### Chat Format
+
+```go
+// ChatFormat represents the tool call format for parsing model output.
+type ChatFormat int32
 ```
 
 ### Model Metadata
@@ -363,11 +509,15 @@ Use with `errors.Is()`:
 | `ErrModelClosed` | Operation attempted on a closed model |
 | `ErrEmbeddingsDisabled` | Embeddings requested but model loaded without `WithEmbeddings()` |
 | `ErrPromptTooLong` | Prompt exceeds context size |
-| `ErrCancelled` | Context was cancelled |
 | `ErrDecodeFailed` | Decode operation failed |
 | `ErrSessionIsNil` | Session is nil |
 | `ErrModelIsNil` | Model is nil |
 | `ErrChatIsNil` | Chat is nil |
+| `ErrNoToolsRegistered` | GenerateWithTools called without registered tools |
+| `ErrMaxIterationsExceeded` | Maximum agent loop iterations reached |
+| `ErrMaxToolCallsExceeded` | Maximum total tool calls reached |
+| `ErrTemplateApply` | Failed to apply chat template with tools |
+| `ErrToolTemplateUnsupported` | Model does not support native tool templates |
 
 ### Typed Errors
 
@@ -380,6 +530,7 @@ Use with `errors.As()` for additional context:
 | `TokenizeError` | `Text`, `Message` | Tokenization failure |
 | `EmbeddingError` | `Message` | Embedding extraction failure |
 | `ChatTemplateError` | `Message` | Chat template failure |
+| `ToolExecutionError` | `ToolName`, `CallID`, `Err` | Tool execution failure |
 
 Example:
 
@@ -408,7 +559,62 @@ if err != nil {
 
 All Sessions and Chats from the same Model share one KV cache. When switching between unrelated sessions, the cache is recomputed from the common prefix. Use `Checkpoint()` to save state before branching.
 
-### Example: Branching Conversation
+---
+
+## Examples
+
+### Basic Chat
+
+```go
+model, _ := zeus.LoadModel("model.gguf")
+defer model.Close()
+
+chat := model.NewChat()
+chat.AddMessage(zeus.RoleSystem, "You are a helpful assistant.")
+
+reader := chat.Generate(ctx, "Hello!")
+response, _ := io.ReadAll(reader)
+fmt.Println(string(response))
+```
+
+### Streaming Tokens
+
+```go
+for tok, err := range chat.GenerateSequence(ctx, "Tell me a story") {
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Print(tok.Text)
+}
+```
+
+### Agentic Tool Execution
+
+```go
+chat := model.NewChat(
+    zeus.WithTools(&WeatherTool{}, &CalculatorTool{}),
+    zeus.WithMaxIterations(5),
+)
+chat.AddMessage(zeus.RoleSystem, "You are a helpful assistant with access to tools.")
+
+for event, err := range chat.GenerateWithTools(ctx, "What's the weather in Paris?") {
+    if err != nil {
+        log.Fatal(err)
+    }
+    switch event.Type {
+    case zeus.AgentEventToken:
+        fmt.Print(event.Token.Text)
+    case zeus.AgentEventToolCallStart:
+        fmt.Printf("\n[Calling %s...]\n", event.ToolCall.Name)
+    case zeus.AgentEventToolCallEnd:
+        fmt.Printf("[Result: %s]\n", event.Result.Content)
+    case zeus.AgentEventDone:
+        fmt.Println("\n[Done]")
+    }
+}
+```
+
+### Branching Conversation
 
 ```go
 session := model.NewSession()
@@ -431,4 +637,26 @@ session, _ = checkpoint.Backtrack()
 for tok, _ := range session.GenerateSequence(ctx, " What's your name?") {
     fmt.Print(tok.Text)
 }
+```
+
+### Auto-Compacting Long Conversations
+
+```go
+// Chat will automatically summarize older messages when context reaches 80%
+chat := model.NewChat(
+    zeus.WithAutoCompactThreshold(0.8),
+)
+```
+
+### Embeddings
+
+```go
+model, _ := zeus.LoadModel("model.gguf", zeus.WithEmbeddings())
+defer model.Close()
+
+embedding, _ := model.Embeddings(ctx, "Hello world")
+fmt.Printf("Embedding dimension: %d\n", len(embedding))
+
+// Batch embeddings
+embeddings, _ := model.EmbeddingsBatch(ctx, []string{"Hello", "World"})
 ```

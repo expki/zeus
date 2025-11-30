@@ -15,6 +15,7 @@ const (
 	RoleSystem    Role = "system"
 	RoleUser      Role = "user"
 	RoleAssistant Role = "assistant"
+	RoleTool      Role = "tool" // Tool result messages
 )
 
 // ChatMessage represents a single message in a conversation.

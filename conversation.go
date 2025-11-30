@@ -22,6 +22,10 @@ type Chat interface {
 	// The user message and assistant response are added to the conversation.
 	GenerateSequence(ctx context.Context, userMessage string, opts ...GenerateOption) iter.Seq2[Token, error]
 
+	// GenerateWithTools executes an agentic loop, auto-executing tools until the model
+	// produces a final response without tool calls. Requires tools to be registered via WithTools.
+	GenerateWithTools(ctx context.Context, userMessage string, opts ...GenerateOption) iter.Seq2[AgentEvent, error]
+
 	// AddMessage adds a message to the conversation without generating.
 	// Useful for adding system prompts or reconstructing conversation history.
 	AddMessage(role Role, content string)
@@ -41,13 +45,18 @@ type Chat interface {
 	// Model returns the parent model.
 	Model() Model
 
+	// Tools returns the registered tools for this chat.
+	Tools() []Tool
+
 	// Compact summarizes older messages and replaces them with the summary, keeping the last 10% of messages (or at least 1).
 	Compact(ctx context.Context) error
 }
 
 // ChatConfig holds options for creating a Chat.
 type ChatConfig struct {
-	ChatTemplateConfig // Embedded - Template, AddAssistant
+	ChatTemplateConfig             // Embedded - Template, AddAssistant
+	AgentConfig        AgentConfig // Agent/tool configuration
+	ChatFormat         ChatFormat  // Tool call format for parsing (default: Hermes2Pro)
 }
 
 // ChatOption is a functional option for NewChat.
@@ -57,15 +66,19 @@ type ChatOption func(*ChatConfig)
 func DefaultChatConfig() ChatConfig {
 	return ChatConfig{
 		ChatTemplateConfig: DefaultChatTemplateConfig(),
+		AgentConfig:        DefaultAgentConfig(),
+		ChatFormat:         ChatFormatContentOnly, // Auto-detected when applying tool templates
 	}
 }
 
 // chat implements the Chat interface.
 type chat struct {
-	model    *model
-	messages []ChatMessage
-	parent   *chat
-	config   ChatConfig
+	model       *model
+	messages    []ChatMessage
+	parent      *chat
+	config      ChatConfig
+	agentConfig AgentConfig // Agent/tool configuration
+	chatFormat  ChatFormat  // Tool call format for parsing
 
 	// Session wrapping for KV cache efficiency
 	session       Session // Underlying session for token management
@@ -84,11 +97,13 @@ func (m *model) NewChat(opts ...ChatOption) Chat {
 	}
 
 	return &chat{
-		model:    m,
-		messages: nil,
-		parent:   nil,
-		config:   cfg,
-		session:  m.NewSession(),
+		model:       m,
+		messages:    nil,
+		parent:      nil,
+		config:      cfg,
+		agentConfig: cfg.AgentConfig,
+		chatFormat:  cfg.ChatFormat,
+		session:     m.NewSession(),
 	}
 }
 
@@ -152,6 +167,8 @@ func (c *chat) GenerateSequence(ctx context.Context, userMessage string, opts ..
 			messages:      c.messages,
 			parent:        c.parent,
 			config:        c.config,
+			agentConfig:   c.agentConfig,
+			chatFormat:    c.chatFormat,
 			session:       c.session.Checkpoint(),
 			lastFormatted: c.lastFormatted,
 		}
@@ -196,7 +213,7 @@ func (c *chat) GenerateSequence(ctx context.Context, userMessage string, opts ..
 
 		// Add assistant response to messages
 		response := responseBuilder.String()
-		c.messages = append(c.messages, ChatMessage{Role: RoleAssistant, Content: response})
+		c.messages = append(slices.Clone(c.messages), ChatMessage{Role: RoleAssistant, Content: response})
 
 		// Update lastFormatted to include the response
 		// Format again without assistant prefix to get the full conversation
@@ -218,7 +235,7 @@ func (c *chat) AddMessage(role Role, content string) {
 	if c == nil {
 		return
 	}
-	c.messages = append(c.messages, ChatMessage{Role: role, Content: content})
+	c.messages = append(slices.Clone(c.messages), ChatMessage{Role: role, Content: content})
 }
 
 // Checkpoint creates a snapshot of the current chat state.
@@ -231,9 +248,11 @@ func (c *chat) Checkpoint() Chat {
 	}
 	return &chat{
 		model:         c.model,
-		messages:      slices.Clone(c.messages),
+		messages:      c.messages,
 		parent:        c.parent,
 		config:        c.config,
+		agentConfig:   c.agentConfig,
+		chatFormat:    c.chatFormat,
 		session:       c.session.Checkpoint(),
 		lastFormatted: c.lastFormatted,
 	}

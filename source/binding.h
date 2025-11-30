@@ -332,6 +332,101 @@ int32_t binding_apply_chat_template(
     int32_t buf_size
 );
 
+// ============================================================================
+// Tool Call Parsing
+// ============================================================================
+
+// Chat format is passed as int32_t for forward compatibility with llama.cpp.
+// Values correspond to common_chat_format enum in llama.cpp.
+// Use binding_chat_format_name() to get a human-readable name.
+
+// Parsed tool call structure
+typedef struct {
+    const char* name;       // Tool function name
+    const char* arguments;  // JSON string of arguments
+    const char* id;         // Tool call ID (format-specific)
+} binding_tool_call;
+
+// Parse result structure
+typedef struct {
+    const char* content;            // Non-tool-call text content
+    const char* reasoning_content;  // Reasoning/thinking content (if any)
+    binding_tool_call* tool_calls;  // Array of tool calls
+    int32_t tool_call_count;        // Number of tool calls
+    bool success;                   // Whether parsing succeeded
+} binding_parse_result;
+
+// Parse tool calls from model output
+// response: the raw model output
+// format: the chat format to use for parsing (int32_t for forward compatibility)
+// is_partial: true if response may be incomplete (streaming)
+// Returns a parse result that must be freed with binding_free_parse_result
+binding_parse_result* binding_parse_tool_calls(
+    const char* response,
+    int32_t format,
+    bool is_partial
+);
+
+// Free parse result
+void binding_free_parse_result(binding_parse_result* result);
+
+// Get format name for debugging
+const char* binding_chat_format_name(int32_t format);
+
+// ============================================================================
+// Tool Template Application
+// ============================================================================
+
+// Tool definition structure (matches common_chat_tool)
+typedef struct {
+    const char* name;        // Tool function name
+    const char* description; // Human-readable description
+    const char* parameters;  // JSON schema string for parameters
+} binding_chat_tool_def;
+
+// Tool choice enum
+typedef enum {
+    BINDING_TOOL_CHOICE_AUTO = 0,     // Model decides when to use tools
+    BINDING_TOOL_CHOICE_NONE,         // Never use tools
+    BINDING_TOOL_CHOICE_REQUIRED,     // Must use a tool
+} binding_tool_choice;
+
+// Template application result (matches common_chat_params)
+typedef struct {
+    const char* prompt;              // Formatted prompt with tools
+    const char* grammar;             // GBNF grammar for output (may be empty)
+    int32_t format;                  // Detected format (forward compatible with llama.cpp)
+    bool grammar_lazy;               // Apply grammar only after trigger
+    const char** grammar_triggers;   // Trigger patterns (null-terminated array)
+    int32_t trigger_count;           // Number of triggers
+    const char** additional_stops;   // Extra stop sequences (null-terminated array)
+    int32_t stop_count;              // Number of stops
+} binding_chat_params;
+
+// Apply chat template with tools
+// model: the model handle (contains embedded chat template)
+// messages: array of chat messages
+// message_count: number of messages
+// tools: array of tool definitions
+// tool_count: number of tools
+// tool_choice: how tools should be used
+// parallel_tool_calls: allow multiple tool calls
+// add_generation_prompt: add assistant turn prefix
+// Returns params that must be freed with binding_free_chat_params
+binding_chat_params* binding_apply_chat_template_with_tools(
+    void* model,
+    const binding_chat_message* messages,
+    int32_t message_count,
+    const binding_chat_tool_def* tools,
+    int32_t tool_count,
+    binding_tool_choice tool_choice,
+    bool parallel_tool_calls,
+    bool add_generation_prompt
+);
+
+// Free chat params
+void binding_free_chat_params(binding_chat_params* params);
+
 #ifdef __cplusplus
 }
 #endif

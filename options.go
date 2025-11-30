@@ -5,6 +5,8 @@ package zeus
 */
 import "C"
 
+import "time"
+
 func init() {
 	SetVerbose(false)
 }
@@ -309,4 +311,47 @@ func WithAddAssistant(add bool) ChatTemplateOption {
 // older messages are summarized to free space. Use 0 to disable auto-compaction.
 func WithAutoCompactThreshold(threshold float32) ChatTemplateOption {
 	return func(c *ChatTemplateConfig) { c.AutoCompactThreshold = threshold }
+}
+
+// WithTools registers tools for the chat to use with GenerateWithTools.
+func WithTools(tools ...Tool) ChatOption {
+	return func(c *ChatConfig) { c.AgentConfig.Tools = tools }
+}
+
+// WithMaxIterations sets the maximum number of agentic loop iterations.
+// Each iteration may contain multiple tool calls. Default is 10.
+func WithMaxIterations(n int) ChatOption {
+	return func(c *ChatConfig) { c.AgentConfig.MaxIterations = n }
+}
+
+// WithMaxToolCalls sets the maximum total tool calls across all iterations.
+// Default is 25.
+func WithMaxToolCalls(n int) ChatOption {
+	return func(c *ChatConfig) { c.AgentConfig.MaxToolCalls = n }
+}
+
+// WithToolTimeout sets the per-tool execution timeout. Default is 30 seconds.
+func WithToolTimeout(d time.Duration) ChatOption {
+	return func(c *ChatConfig) { c.AgentConfig.ToolTimeout = d }
+}
+
+// WithChatFormat sets the tool call format for parsing model output.
+// Different models use different formats. Normally this is auto-detected by llama.cpp
+// when applying tool templates, so you typically don't need to set this explicitly.
+func WithChatFormat(format ChatFormat) ChatOption {
+	return func(c *ChatConfig) { c.ChatFormat = format }
+}
+
+// WithToolChoice sets how the model should use tools.
+//   - ToolChoiceAuto (default): Model decides when to use tools
+//   - ToolChoiceNone: Never use tools
+//   - ToolChoiceRequired: Must use a tool
+func WithToolChoice(choice ToolChoice) ChatOption {
+	return func(c *ChatConfig) { c.AgentConfig.ToolChoice = choice }
+}
+
+// WithParallelToolCalls controls whether the model can make multiple tool calls
+// in a single response. Default is true.
+func WithParallelToolCalls(parallel bool) ChatOption {
+	return func(c *ChatConfig) { c.AgentConfig.ParallelToolCalls = parallel }
 }

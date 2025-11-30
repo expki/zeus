@@ -14,6 +14,13 @@ var (
 	ErrSessionIsNil       = errors.New("zeus: session is nil and not defined")
 	ErrModelIsNil         = errors.New("zeus: model is nil and not defined")
 	ErrChatIsNil          = errors.New("zeus: chat is nil and not defined")
+
+	// Tool-related errors
+	ErrNoToolsRegistered       = errors.New("zeus: no tools registered")
+	ErrMaxIterationsExceeded   = errors.New("zeus: max agent iterations exceeded")
+	ErrMaxToolCallsExceeded    = errors.New("zeus: max tool calls exceeded")
+	ErrTemplateApply           = errors.New("zeus: failed to apply chat template with tools")
+	ErrToolTemplateUnsupported = errors.New("zeus: model does not support native tool templates")
 )
 
 // ModelLoadError provides details about model loading failures.
@@ -65,4 +72,19 @@ type ChatTemplateError struct {
 
 func (e *ChatTemplateError) Error() string {
 	return fmt.Sprintf("zeus: chat template error: %s", e.Message)
+}
+
+// ToolExecutionError provides details about tool execution failures.
+type ToolExecutionError struct {
+	ToolName string
+	CallID   string
+	Err      error
+}
+
+func (e *ToolExecutionError) Error() string {
+	return fmt.Sprintf("zeus: tool %q (call %s) failed: %v", e.ToolName, e.CallID, e.Err)
+}
+
+func (e *ToolExecutionError) Unwrap() error {
+	return e.Err
 }
