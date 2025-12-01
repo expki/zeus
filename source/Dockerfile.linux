@@ -1,11 +1,14 @@
 # target older distro for wider glibc compatibility
-FROM gcc:bookworm
+FROM gcc:11-bookworm
 
 RUN apt-get update && apt-get install -y \
     cmake \
     libvulkan-dev \
     glslc \
     && rm -rf /var/lib/apt/lists/*
+
+RUN rm -f /etc/ld.so.conf.d/000-local-lib.conf && ldconfig
+ENV LD_LIBRARY_PATH=
 
 WORKDIR /build
 

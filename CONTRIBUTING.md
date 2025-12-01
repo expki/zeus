@@ -41,6 +41,7 @@ source/llama.cpp/       # Upstream llama.cpp (git submodule)
 
 - Go 1.25+
 - x86_64 Linux or Windows
+  - Linux: libvulkan1 or libvulkan-dev
 
 Pre-built static libraries are included in `lib/`. Most users can simply `go get github.com/expki/zeus`.
 
@@ -50,7 +51,7 @@ Pre-built static libraries are included in `lib/`. Most users can simply `go get
 - Docker
 
 The build uses Docker containers with all necessary toolchains pre-configured:
-- **Linux builds**: `gcc:latest` with CMake and Vulkan SDK
+- **Linux builds**: `gcc:11-bookworm` with CMake and Vulkan SDK
 - **Windows cross-compilation**: `llvm-mingw` with CMake and Vulkan headers
 
 ## Building from Source

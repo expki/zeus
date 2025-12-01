@@ -15,7 +15,7 @@ Zeus wraps llama.cpp with a clean Go API, handling all the complexity of CGO bin
 - **Zero Setup** - Pre-built static libraries included. No compilation, no cmake, no toolchains.
 - **Universal Model Support** - Works with any GGUF model: Llama, Mistral, Qwen, Phi, Gemma, and hundreds more.
 - **Portable** - x86_64 builds for Linux and Windows that work on CPUs from 2013 onwards.
-- **GPU Acceleration** - Optional Vulkan support for GPU inference, with automatic CPU fallback.
+- **GPU Acceleration** - Vulkan support for GPU inference, with automatic CPU fallback.
 - **Sensible Defaults** - Works out of the box. Configure only what you need.
 - **Memory Efficient** - KV cache quantization to run larger contexts on limited RAM.
 - **Developer Idiocracy** - This library expects no assumed knowlege from developers and it cannot be used incorrectly.
@@ -71,6 +71,7 @@ CGO_ENABLED=1 go build -o myapp .
 
 - Go 1.25+
 - x86_64 Linux or Windows
+  - Linux: libvulkan1
 - Any GGUF model file
 
 ## Documentation
