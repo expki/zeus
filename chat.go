@@ -22,6 +22,11 @@ const (
 type ChatMessage struct {
 	Role    Role
 	Content string
+	// For assistant messages: tool calls made in this message
+	ToolCalls []ToolCall
+	// For tool result messages: identifies which tool call this responds to
+	ToolName   string
+	ToolCallID string
 }
 
 // ChatTemplate returns the model's embedded chat template string.

@@ -300,10 +300,23 @@ binding_result binding_get_embeddings_batch(
 // Chat Templates
 // ============================================================================
 
+// Tool call in an assistant message
+typedef struct {
+    const char *name;       // Tool function name
+    const char *arguments;  // JSON string of arguments
+    const char *id;         // Tool call ID
+} binding_chat_tool_call;
+
 // Chat message for template formatting
 typedef struct {
     const char *role;
     const char *content;
+    // For assistant messages: tool calls made
+    const binding_chat_tool_call *tool_calls;
+    int32_t tool_call_count;
+    // For tool result messages: which tool call this is a response to
+    const char *tool_name;
+    const char *tool_call_id;
 } binding_chat_message;
 
 // Get the model's chat template (returns NULL if not embedded)

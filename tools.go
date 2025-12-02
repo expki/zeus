@@ -10,8 +10,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync/atomic"
 	"unsafe"
 )
+
+// toolCallIDCounter is used to generate unique tool call IDs
+var toolCallIDCounter atomic.Uint64
+
+// generateToolCallID creates a unique identifier for a tool call
+func generateToolCallID() string {
+	return fmt.Sprintf("call_%d", toolCallIDCounter.Add(1))
+}
 
 // Tool defines a callable function that the model can invoke.
 // Implement this interface to create custom tools.
@@ -186,6 +195,10 @@ func parseToolCallsNative(response string, format ChatFormat) ParseResult {
 		if tc.id != nil {
 			toolCall.ID = C.GoString(tc.id)
 		}
+		// Generate ID if not provided by the model
+		if toolCall.ID == "" {
+			toolCall.ID = generateToolCallID()
+		}
 		if tc.arguments != nil {
 			argsJSON := C.GoString(tc.arguments)
 			// Parse JSON arguments
@@ -241,8 +254,11 @@ func (m *model) applyChatTemplateWithTools(
 	}
 
 	// Convert messages to C structures
+	// Use C-allocated memory for tool calls to avoid CGO pointer issues
 	cMessages := make([]C.binding_chat_message, len(messages))
-	cStrings := make([]*C.char, 0, len(messages)*2)
+	cStrings := make([]*C.char, 0, len(messages)*4) // role, content, tool_name, tool_call_id
+	cToolCallArrays := make([]*C.binding_chat_tool_call, 0)
+	cToolCallStrings := make([]*C.char, 0)
 
 	for i, msg := range messages {
 		roleStr := C.CString(string(msg.Role))
@@ -252,10 +268,52 @@ func (m *model) applyChatTemplateWithTools(
 			role:    roleStr,
 			content: contentStr,
 		}
+
+		// Handle tool calls in assistant messages
+		if len(msg.ToolCalls) > 0 {
+			// Allocate C array for tool calls
+			tcArraySize := C.size_t(len(msg.ToolCalls)) * C.size_t(unsafe.Sizeof(C.binding_chat_tool_call{}))
+			tcArray := (*C.binding_chat_tool_call)(C.malloc(tcArraySize))
+			cToolCallArrays = append(cToolCallArrays, tcArray)
+
+			// Fill the array
+			tcSlice := unsafe.Slice(tcArray, len(msg.ToolCalls))
+			for j, tc := range msg.ToolCalls {
+				nameStr := C.CString(tc.Name)
+				argsStr := C.CString(marshalToolArgs(tc.Arguments))
+				idStr := C.CString(tc.ID)
+				cToolCallStrings = append(cToolCallStrings, nameStr, argsStr, idStr)
+				tcSlice[j] = C.binding_chat_tool_call{
+					name:      nameStr,
+					arguments: argsStr,
+					id:        idStr,
+				}
+			}
+			cMessages[i].tool_calls = tcArray
+			cMessages[i].tool_call_count = C.int32_t(len(msg.ToolCalls))
+		}
+
+		// Handle tool result messages
+		if msg.ToolName != "" {
+			toolNameStr := C.CString(msg.ToolName)
+			cStrings = append(cStrings, toolNameStr)
+			cMessages[i].tool_name = toolNameStr
+		}
+		if msg.ToolCallID != "" {
+			toolCallIDStr := C.CString(msg.ToolCallID)
+			cStrings = append(cStrings, toolCallIDStr)
+			cMessages[i].tool_call_id = toolCallIDStr
+		}
 	}
 	defer func() {
 		for _, s := range cStrings {
 			C.free(unsafe.Pointer(s))
+		}
+		for _, s := range cToolCallStrings {
+			C.free(unsafe.Pointer(s))
+		}
+		for _, arr := range cToolCallArrays {
+			C.free(unsafe.Pointer(arr))
 		}
 	}()
 
@@ -383,5 +441,17 @@ func toolParametersToJSON(params []ToolParameter) string {
 	}
 
 	data, _ := json.Marshal(schema)
+	return string(data)
+}
+
+// marshalToolArgs converts tool arguments map to JSON string.
+func marshalToolArgs(args map[string]any) string {
+	if args == nil {
+		return "{}"
+	}
+	data, err := json.Marshal(args)
+	if err != nil {
+		return "{}"
+	}
 	return string(data)
 }

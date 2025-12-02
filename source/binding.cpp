@@ -1455,6 +1455,26 @@ binding_chat_params* binding_apply_chat_template_with_tools(
             common_chat_msg msg;
             msg.role = messages[i].role ? messages[i].role : "";
             msg.content = messages[i].content ? messages[i].content : "";
+
+            // Handle tool calls in assistant messages
+            if (messages[i].tool_calls != nullptr && messages[i].tool_call_count > 0) {
+                for (int32_t j = 0; j < messages[i].tool_call_count; j++) {
+                    common_chat_tool_call tc;
+                    tc.name = messages[i].tool_calls[j].name ? messages[i].tool_calls[j].name : "";
+                    tc.arguments = messages[i].tool_calls[j].arguments ? messages[i].tool_calls[j].arguments : "";
+                    tc.id = messages[i].tool_calls[j].id ? messages[i].tool_calls[j].id : "";
+                    msg.tool_calls.push_back(tc);
+                }
+            }
+
+            // Handle tool result messages
+            if (messages[i].tool_name != nullptr) {
+                msg.tool_name = messages[i].tool_name;
+            }
+            if (messages[i].tool_call_id != nullptr) {
+                msg.tool_call_id = messages[i].tool_call_id;
+            }
+
             inputs.messages.push_back(msg);
         }
 
@@ -1516,6 +1536,9 @@ binding_chat_params* binding_apply_chat_template_with_tools(
         if (result->prompt == nullptr) result->prompt = strdup("");
         if (result->grammar == nullptr) result->grammar = strdup("");
     } catch (...) {
+        if (g_verbose) {
+            fprintf(stderr, "binding: apply_chat_template_with_tools unknown error\n");
+        }
         if (result->prompt == nullptr) result->prompt = strdup("");
         if (result->grammar == nullptr) result->grammar = strdup("");
     }

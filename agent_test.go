@@ -393,3 +393,50 @@ func TestAgentOptions(t *testing.T) {
 		t.Error("ParallelToolCalls = true, want false")
 	}
 }
+
+// TestGenerateWithTools_NoGrammarCrash verifies that tool calling doesn't crash
+// when models output markdown or other content that doesn't match strict grammar rules.
+// This was a regression where models without native tool support (ChatFormatGeneric)
+// would crash with "Unexpected empty grammar stack" when outputting backticks.
+func TestGenerateWithTools_NoGrammarCrash(t *testing.T) {
+	// Skip if test model context is too small for tool calling
+	// Tool templates add significant token overhead
+	if testModel.ContextSize() < 512 {
+		t.Skip("Test model context size too small for tool calling test")
+	}
+
+	tool := MockTool{
+		name:        "search",
+		description: "Search for items",
+		params: []ToolParameter{
+			{Name: "query", Type: "string", Description: "Search query", Required: true},
+		},
+		handler: func(ctx context.Context, args map[string]any) (string, error) {
+			return "Found 2 results", nil
+		},
+	}
+
+	chat := testModel.NewChat(WithTools(tool))
+	chat.AddMessage(RoleSystem, "You are a helpful assistant.")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// The test passes if this doesn't panic/crash
+	var completed bool
+	for event, err := range chat.GenerateWithTools(ctx, "Find something") {
+		if err != nil {
+			// Errors are acceptable (e.g., context timeout), crashes are not
+			t.Logf("GenerateWithTools returned error: %v", err)
+			break
+		}
+		if event.Type == AgentEventDone {
+			completed = true
+		}
+	}
+
+	if !completed {
+		t.Log("Generation did not complete (may have hit iteration limit or timeout)")
+	}
+	// Test passes if we reach here without crashing
+}
