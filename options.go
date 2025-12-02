@@ -11,6 +11,23 @@ func init() {
 	SetVerbose(false)
 }
 
+// GrammarTriggerType defines how a trigger pattern should be matched.
+type GrammarTriggerType int32
+
+const (
+	TriggerTypeWord        GrammarTriggerType = 0 // Exact word match (auto-escaped)
+	TriggerTypePattern     GrammarTriggerType = 1 // Regex pattern (anywhere in output)
+	TriggerTypePatternFull GrammarTriggerType = 2 // Full regex pattern
+	TriggerTypeToken       GrammarTriggerType = 3 // Token ID trigger
+)
+
+// GrammarTrigger represents a pattern that activates lazy grammar.
+type GrammarTrigger struct {
+	Type  GrammarTriggerType
+	Value string // For word/pattern types
+	Token int32  // For token type
+}
+
 // SetVerbose enables or disables verbose logging from llama.cpp.
 func SetVerbose(verbose bool) {
 	C.binding_set_verbose(C.bool(verbose))
@@ -153,6 +170,10 @@ type GenerateConfig struct {
 	Seed             int          // Random seed for sampling (-1 = random)
 	Threads          int          // Number of threads for generation (0 = autodetect)
 	ReasoningEnabled bool         // Enable model thinking/reasoning (default: true)
+
+	// Internal: lazy grammar fields (set by agent, not user-facing)
+	grammarLazy     bool
+	grammarTriggers []GrammarTrigger
 }
 
 // DefaultGenerateConfig returns a GenerateConfig with sensible defaults.
@@ -275,6 +296,19 @@ func WithThreads(n int) GenerateOption {
 // This is equivalent to llama.cpp server's --reasoning-budget 0.
 func WithReasoningEnabled(enabled bool) GenerateOption {
 	return func(c *GenerateConfig) { c.ReasoningEnabled = enabled }
+}
+
+// withLazyGrammar enables lazy grammar with typed triggers (internal use).
+// This is used by GenerateWithTools to apply grammar only after trigger patterns.
+func withLazyGrammar(grammar string, triggers []GrammarTrigger) GenerateOption {
+	return func(c *GenerateConfig) {
+		if grammar == "" || len(triggers) == 0 {
+			return
+		}
+		c.Grammar = grammar
+		c.grammarLazy = true
+		c.grammarTriggers = triggers
+	}
 }
 
 // ChatTemplateConfig holds options for ApplyChatTemplate.

@@ -78,6 +78,21 @@ typedef struct {
     int32_t tensor_split_count;
 } binding_model_config;
 
+// Grammar trigger type (matches common_grammar_trigger_type)
+typedef enum {
+    BINDING_TRIGGER_TYPE_WORD = 0,        // Exact word match (auto-escaped)
+    BINDING_TRIGGER_TYPE_PATTERN = 1,     // Regex pattern (anywhere in output)
+    BINDING_TRIGGER_TYPE_PATTERN_FULL = 2,// Full regex pattern
+    BINDING_TRIGGER_TYPE_TOKEN = 3,       // Token ID trigger
+} binding_trigger_type;
+
+// Grammar trigger structure
+typedef struct {
+    binding_trigger_type type;
+    const char *value;  // For word/pattern triggers (NULL for token-only)
+    int32_t token;      // For token triggers
+} binding_grammar_trigger;
+
 // Text generation configuration
 typedef struct {
     int32_t max_tokens;         // 0 = unlimited
@@ -96,6 +111,9 @@ typedef struct {
     float mirostat_eta;
     bool ignore_eos;
     const char *grammar;        // NULL for none
+    bool grammar_lazy;          // Apply grammar only after trigger
+    const binding_grammar_trigger *grammar_triggers;  // Trigger patterns
+    int32_t grammar_trigger_count;                    // Number of triggers
     const char **stop_sequences;
     int32_t stop_count;
     bool reasoning_enabled;     // Enable model thinking/reasoning
@@ -410,7 +428,7 @@ typedef struct {
     const char* grammar;             // GBNF grammar for output (may be empty)
     int32_t format;                  // Detected format (forward compatible with llama.cpp)
     bool grammar_lazy;               // Apply grammar only after trigger
-    const char** grammar_triggers;   // Trigger patterns (null-terminated array)
+    binding_grammar_trigger* grammar_triggers;  // Typed trigger array
     int32_t trigger_count;           // Number of triggers
     const char** additional_stops;   // Extra stop sequences (null-terminated array)
     int32_t stop_count;              // Number of stops

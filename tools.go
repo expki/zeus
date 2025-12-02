@@ -233,12 +233,12 @@ const (
 // ChatParams contains the result of applying a chat template with tools.
 // This includes the formatted prompt, grammar constraints, and other metadata.
 type ChatParams struct {
-	Prompt          string     // Formatted prompt with tools embedded
-	Grammar         string     // GBNF grammar for constraining output (may be empty)
-	Format          ChatFormat // Detected chat format
-	GrammarLazy     bool       // Apply grammar only after trigger patterns
-	GrammarTriggers []string   // Patterns that activate grammar
-	AdditionalStops []string   // Extra stop sequences
+	Prompt          string           // Formatted prompt with tools embedded
+	Grammar         string           // GBNF grammar for constraining output (may be empty)
+	Format          ChatFormat       // Detected chat format
+	GrammarLazy     bool             // Apply grammar only after trigger patterns
+	GrammarTriggers []GrammarTrigger // Typed patterns that activate grammar
+	AdditionalStops []string         // Extra stop sequences
 }
 
 // applyChatTemplateWithTools applies the model's chat template with tool definitions.
@@ -379,14 +379,18 @@ func (m *model) applyChatTemplateWithTools(
 		params.Grammar = C.GoString(result.grammar)
 	}
 
-	// Copy triggers
+	// Copy typed triggers
 	if result.trigger_count > 0 && result.grammar_triggers != nil {
 		count := int(result.trigger_count)
 		cTriggers := unsafe.Slice(result.grammar_triggers, count)
-		params.GrammarTriggers = make([]string, count)
+		params.GrammarTriggers = make([]GrammarTrigger, count)
 		for i := 0; i < count; i++ {
-			if cTriggers[i] != nil {
-				params.GrammarTriggers[i] = C.GoString(cTriggers[i])
+			params.GrammarTriggers[i] = GrammarTrigger{
+				Type:  GrammarTriggerType(cTriggers[i]._type),
+				Token: int32(cTriggers[i].token),
+			}
+			if cTriggers[i].value != nil {
+				params.GrammarTriggers[i].Value = C.GoString(cTriggers[i].value)
 			}
 		}
 	}

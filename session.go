@@ -173,6 +173,39 @@ func (s *session) GenerateSequence(ctx context.Context, prompt string, opts ...G
 			cConfig.grammar = cGrammar
 		}
 
+		// Handle lazy grammar
+		cConfig.grammar_lazy = C.bool(cfg.grammarLazy)
+		if cfg.grammarLazy && len(cfg.grammarTriggers) > 0 {
+			// Allocate C trigger array
+			cTriggersSize := C.size_t(len(cfg.grammarTriggers)) * C.size_t(unsafe.Sizeof(C.binding_grammar_trigger{}))
+			cTriggers := (*C.binding_grammar_trigger)(C.malloc(cTriggersSize))
+			defer C.free(unsafe.Pointer(cTriggers))
+
+			triggersSlice := unsafe.Slice(cTriggers, len(cfg.grammarTriggers))
+			var cTriggerStrings []*C.char
+
+			for i, trigger := range cfg.grammarTriggers {
+				triggersSlice[i]._type = C.binding_trigger_type(trigger.Type)
+				triggersSlice[i].token = C.int32_t(trigger.Token)
+				if trigger.Value != "" {
+					cStr := C.CString(trigger.Value)
+					cTriggerStrings = append(cTriggerStrings, cStr)
+					triggersSlice[i].value = cStr
+				} else {
+					triggersSlice[i].value = nil
+				}
+			}
+			// Defer freeing trigger strings
+			defer func() {
+				for _, s := range cTriggerStrings {
+					C.free(unsafe.Pointer(s))
+				}
+			}()
+
+			cConfig.grammar_triggers = cTriggers
+			cConfig.grammar_trigger_count = C.int32_t(len(cfg.grammarTriggers))
+		}
+
 		// Handle stop sequences
 		var cStopSequences **C.char
 		if len(cfg.StopSequences) > 0 {
@@ -328,6 +361,39 @@ func (s *session) GenerateSequenceWithLogprobs(ctx context.Context, prompt strin
 			cGrammar = C.CString(cfg.Grammar)
 			defer C.free(unsafe.Pointer(cGrammar))
 			cConfig.grammar = cGrammar
+		}
+
+		// Handle lazy grammar
+		cConfig.grammar_lazy = C.bool(cfg.grammarLazy)
+		if cfg.grammarLazy && len(cfg.grammarTriggers) > 0 {
+			// Allocate C trigger array
+			cTriggersSize := C.size_t(len(cfg.grammarTriggers)) * C.size_t(unsafe.Sizeof(C.binding_grammar_trigger{}))
+			cTriggers := (*C.binding_grammar_trigger)(C.malloc(cTriggersSize))
+			defer C.free(unsafe.Pointer(cTriggers))
+
+			triggersSlice := unsafe.Slice(cTriggers, len(cfg.grammarTriggers))
+			var cTriggerStrings []*C.char
+
+			for i, trigger := range cfg.grammarTriggers {
+				triggersSlice[i]._type = C.binding_trigger_type(trigger.Type)
+				triggersSlice[i].token = C.int32_t(trigger.Token)
+				if trigger.Value != "" {
+					cStr := C.CString(trigger.Value)
+					cTriggerStrings = append(cTriggerStrings, cStr)
+					triggersSlice[i].value = cStr
+				} else {
+					triggersSlice[i].value = nil
+				}
+			}
+			// Defer freeing trigger strings
+			defer func() {
+				for _, s := range cTriggerStrings {
+					C.free(unsafe.Pointer(s))
+				}
+			}()
+
+			cConfig.grammar_triggers = cTriggers
+			cConfig.grammar_trigger_count = C.int32_t(len(cfg.grammarTriggers))
 		}
 
 		// Handle stop sequences

@@ -111,6 +111,9 @@ binding_generate_config binding_generate_config_default(void) {
     config.mirostat_eta = 0.1f;
     config.ignore_eos = false;
     config.grammar = nullptr;
+    config.grammar_lazy = false;
+    config.grammar_triggers = nullptr;
+    config.grammar_trigger_count = 0;
     config.stop_sequences = nullptr;
     config.stop_count = 0;
     config.reasoning_enabled = true;
@@ -173,7 +176,39 @@ static llama_sampler *create_sampler(const llama_vocab *vocab, const binding_gen
 
     // Add grammar if specified
     if (config->grammar != nullptr && config->grammar[0] != '\0') {
-        llama_sampler *grammar_smpl = llama_sampler_init_grammar(vocab, config->grammar, "root");
+        llama_sampler *grammar_smpl = nullptr;
+
+        if (config->grammar_lazy && config->grammar_triggers != nullptr &&
+            config->grammar_trigger_count > 0) {
+            // Separate pattern triggers from token triggers
+            std::vector<const char*> pattern_triggers;
+            std::vector<llama_token> token_triggers;
+
+            for (int32_t i = 0; i < config->grammar_trigger_count; i++) {
+                const auto& trigger = config->grammar_triggers[i];
+                if (trigger.type == BINDING_TRIGGER_TYPE_TOKEN) {
+                    token_triggers.push_back(trigger.token);
+                } else if (trigger.value != nullptr) {
+                    pattern_triggers.push_back(trigger.value);
+                }
+            }
+
+            grammar_smpl = llama_sampler_init_grammar_lazy_patterns(
+                vocab,
+                config->grammar,
+                "root",
+                pattern_triggers.empty() ? nullptr : pattern_triggers.data(),
+                pattern_triggers.size(),
+                token_triggers.empty() ? nullptr : token_triggers.data(),
+                token_triggers.size()
+            );
+        }
+
+        // Fallback to standard grammar if lazy failed or not requested
+        if (grammar_smpl == nullptr && !config->grammar_lazy) {
+            grammar_smpl = llama_sampler_init_grammar(vocab, config->grammar, "root");
+        }
+
         if (grammar_smpl != nullptr) {
             llama_sampler_chain_add(smpl, grammar_smpl);
         }
@@ -1508,14 +1543,32 @@ binding_chat_params* binding_apply_chat_template_with_tools(
         result->format = static_cast<int32_t>(params.format);
         result->grammar_lazy = params.grammar_lazy;
 
-        // Copy triggers
+        // Copy typed triggers
         result->trigger_count = static_cast<int32_t>(params.grammar_triggers.size());
         if (result->trigger_count > 0) {
-            result->grammar_triggers = new const char*[result->trigger_count + 1];
+            result->grammar_triggers = new binding_grammar_trigger[result->trigger_count];
             for (size_t i = 0; i < params.grammar_triggers.size(); i++) {
-                result->grammar_triggers[i] = strdup(params.grammar_triggers[i].value.c_str());
+                const auto& src = params.grammar_triggers[i];
+                // Map common_grammar_trigger_type to binding_trigger_type
+                switch (src.type) {
+                    case COMMON_GRAMMAR_TRIGGER_TYPE_WORD:
+                        result->grammar_triggers[i].type = BINDING_TRIGGER_TYPE_WORD;
+                        break;
+                    case COMMON_GRAMMAR_TRIGGER_TYPE_PATTERN:
+                        result->grammar_triggers[i].type = BINDING_TRIGGER_TYPE_PATTERN;
+                        break;
+                    case COMMON_GRAMMAR_TRIGGER_TYPE_PATTERN_FULL:
+                        result->grammar_triggers[i].type = BINDING_TRIGGER_TYPE_PATTERN_FULL;
+                        break;
+                    case COMMON_GRAMMAR_TRIGGER_TYPE_TOKEN:
+                        result->grammar_triggers[i].type = BINDING_TRIGGER_TYPE_TOKEN;
+                        break;
+                    default:
+                        result->grammar_triggers[i].type = BINDING_TRIGGER_TYPE_WORD;
+                }
+                result->grammar_triggers[i].value = strdup(src.value.c_str());
+                result->grammar_triggers[i].token = src.token;
             }
-            result->grammar_triggers[result->trigger_count] = nullptr;
         }
 
         // Copy stops
@@ -1556,7 +1609,7 @@ void binding_free_chat_params(binding_chat_params* params) {
 
     if (params->grammar_triggers != nullptr) {
         for (int32_t i = 0; i < params->trigger_count; i++) {
-            free((void*)params->grammar_triggers[i]);
+            free((void*)params->grammar_triggers[i].value);
         }
         delete[] params->grammar_triggers;
     }

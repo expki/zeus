@@ -440,3 +440,56 @@ func TestGenerateWithTools_NoGrammarCrash(t *testing.T) {
 	}
 	// Test passes if we reach here without crashing
 }
+
+func TestStripThinkingTags(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "empty string",
+			input:    "",
+			expected: "",
+		},
+		{
+			name:     "no thinking tags",
+			input:    "Hello world",
+			expected: "Hello world",
+		},
+		{
+			name:     "thinking tags with content after",
+			input:    "<think>Some thinking</think>Actual response",
+			expected: "Actual response",
+		},
+		{
+			name:     "thinking tags only",
+			input:    "<think>Some thinking</think>",
+			expected: "",
+		},
+		{
+			name:     "thinking tags with newlines",
+			input:    "<think>\nLet me think...\n</think>\n\nHere is the answer",
+			expected: "Here is the answer",
+		},
+		{
+			name:     "unclosed think tag",
+			input:    "<think>Some thinking",
+			expected: "Some thinking",
+		},
+		{
+			name:     "multiple think blocks - takes content after last",
+			input:    "<think>first</think>middle<think>second</think>final",
+			expected: "final",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := stripThinkingTags(tt.input)
+			if result != tt.expected {
+				t.Errorf("stripThinkingTags(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
