@@ -159,6 +159,11 @@ func LoadModel(path string, opts ...ModelOption) (Model, error) {
 	// Register finalizer as safety net if developer forgets defer model.Close()
 	runtime.SetFinalizer(m, (*model).Close)
 
+	// Spawn background warmup if enabled
+	if cfg.Warmup {
+		go m.warmup()
+	}
+
 	return m, nil
 }
 
@@ -204,4 +209,16 @@ func (m *model) isClosed() bool {
 	m.closedLock.RLock()
 	defer m.closedLock.RUnlock()
 	return m.closed
+}
+
+// warmup runs a minimal decode to initialize GPU kernels.
+func (m *model) warmup() {
+	if m == nil || m.isClosed() {
+		return
+	}
+
+	m.kvMutex.Lock()
+	defer m.kvMutex.Unlock()
+
+	C.binding_warmup(m.ptr)
 }

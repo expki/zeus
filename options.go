@@ -49,6 +49,7 @@ type ModelConfig struct {
 	UseMlock      bool        // Lock model in memory (prevent swapping)
 	UseNUMA       bool        // Enable NUMA optimizations
 	Embeddings    bool        // Enable embedding extraction mode
+	Warmup        bool        // Run warmup in background after loading (default: true)
 }
 
 // DefaultModelConfig returns a ModelConfig with sensible defaults.
@@ -66,6 +67,7 @@ func DefaultModelConfig() ModelConfig {
 		UseMlock:      false,
 		UseNUMA:       false,
 		Embeddings:    false,
+		Warmup:        true,
 	}
 }
 
@@ -148,6 +150,13 @@ func WithNUMA(enable bool) ModelOption {
 // Required to use the Embeddings() method.
 func WithEmbeddings() ModelOption {
 	return func(c *ModelConfig) { c.Embeddings = true }
+}
+
+// WithWarmup enables or disables background warmup after model loading.
+// When enabled (default), this runs a minimal decode in a goroutine to
+// initialize GPU kernels and reduce latency on the first real generation.
+func WithWarmup(enable bool) ModelOption {
+	return func(c *ModelConfig) { c.Warmup = enable }
 }
 
 // GenerateConfig holds configuration for text generation.

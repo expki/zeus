@@ -381,6 +381,38 @@ void binding_free_model(void *model) {
     llama_backend_free();
 }
 
+binding_result binding_warmup(void *model) {
+    if (model == nullptr) {
+        return BINDING_ERR_INVALID_ARGS;
+    }
+
+    llama_binding_state *state = (llama_binding_state *)model;
+    llama_context *ctx = state->ctx;
+    const llama_vocab *vocab = state->vocab;
+
+    // Get BOS token for minimal input
+    llama_token bos = llama_vocab_bos(vocab);
+    if (bos < 0) {
+        bos = 0;  // Fallback to first token
+    }
+
+    // Clear cache before warmup
+    llama_memory_clear(llama_get_memory(ctx), true);
+
+    // Run single-token decode to initialize GPU kernels
+    llama_batch batch = llama_batch_get_one(&bos, 1);
+    if (llama_decode(ctx, batch) != 0) {
+        return BINDING_ERR_DECODE;
+    }
+
+    // Clear cache after warmup (don't pollute state)
+    llama_memory_clear(llama_get_memory(ctx), true);
+    state->cached_tokens.clear();
+    state->cached_n_past = 0;
+
+    return BINDING_OK;
+}
+
 int32_t binding_get_context_size(void *model) {
     if (model == nullptr) return 0;
     llama_binding_state *state = (llama_binding_state *)model;

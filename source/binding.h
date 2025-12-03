@@ -144,6 +144,10 @@ void *binding_load_model(const char *path, const binding_model_config *config);
 // Free model resources
 void binding_free_model(void *model);
 
+// Warmup the model by running a minimal decode pass.
+// This initializes GPU kernels without generating tokens.
+binding_result binding_warmup(void *model);
+
 // Get model properties
 int32_t binding_get_context_size(void *model);
 int32_t binding_get_train_context_size(void *model);
