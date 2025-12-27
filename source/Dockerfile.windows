@@ -1,15 +1,21 @@
 FROM mstorsjo/llvm-mingw:latest
 
-# Install build tools and Vulkan dependencies
-# libvulkan-dev provides headers (platform-independent)
-# glslc compiles shaders to SPIR-V (works for all targets)
+# Install build tools and base Vulkan dependencies
 RUN apt-get update && apt-get install -y \
     make \
     wget \
     p7zip-full \
     glslc \
     libvulkan-dev \
+    git \
+    cmake \
     && rm -rf /var/lib/apt/lists/*
+
+# Install latest Vulkan-Headers from Khronos for VK_EXT_layer_settings support
+RUN git clone --depth 1 https://github.com/KhronosGroup/Vulkan-Headers.git /tmp/Vulkan-Headers && \
+    cmake -S /tmp/Vulkan-Headers -B /tmp/Vulkan-Headers/build -DCMAKE_INSTALL_PREFIX=/usr && \
+    cmake --install /tmp/Vulkan-Headers/build && \
+    rm -rf /tmp/Vulkan-Headers
 
 # Copy Vulkan headers to mingw sysroot for cross-compilation
 RUN cp -r /usr/include/vulkan /opt/llvm-mingw/x86_64-w64-mingw32/include/ && \

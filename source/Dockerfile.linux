@@ -1,14 +1,23 @@
 # target older distro for wider glibc compatibility
 FROM gcc:11-bookworm
 
+# Fix library path issues in GCC base image before installing other packages
+RUN rm -f /etc/ld.so.conf.d/000-local-lib.conf && ldconfig
+ENV LD_LIBRARY_PATH=
+
+# Install build dependencies and newer Vulkan headers from Khronos (VK_EXT_layer_settings support)
 RUN apt-get update && apt-get install -y \
     cmake \
     libvulkan-dev \
     glslc \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
-RUN rm -f /etc/ld.so.conf.d/000-local-lib.conf && ldconfig
-ENV LD_LIBRARY_PATH=
+# Install latest Vulkan-Headers from Khronos for VK_EXT_layer_settings
+RUN git clone --depth 1 https://github.com/KhronosGroup/Vulkan-Headers.git /tmp/Vulkan-Headers && \
+    cmake -S /tmp/Vulkan-Headers -B /tmp/Vulkan-Headers/build -DCMAKE_INSTALL_PREFIX=/usr && \
+    cmake --install /tmp/Vulkan-Headers/build && \
+    rm -rf /tmp/Vulkan-Headers
 
 WORKDIR /build
 

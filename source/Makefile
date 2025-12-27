@@ -25,26 +25,17 @@ endif
 # This targets CPUs from ~2013 onwards (Intel Haswell, AMD Excavator)
 # AVX512 is handled via runtime detection by GGML
 #
-CFLAGS   = -I./llama.cpp/include -I./llama.cpp/ggml/include -I. -O3 -DNDEBUG -std=c11 -fPIC
-CXXFLAGS = -I./llama.cpp/include -I./llama.cpp/ggml/include -I./llama.cpp/common -I./llama.cpp/src -I. -O3 -DNDEBUG -std=c++17 -fPIC
+INCLUDES = -I./llama.cpp/include -I./llama.cpp/ggml/include -I./llama.cpp/common -I./llama.cpp/src -I./llama.cpp/vendor -I.
+CFLAGS   = $(INCLUDES) -O3 -DNDEBUG -std=c11 -fPIC -march=x86-64-v3 -w
+CXXFLAGS = $(INCLUDES) -O3 -DNDEBUG -std=c++17 -fPIC -march=x86-64-v3 -w
 LDFLAGS  =
-
-# Portable x86_64 architecture flags (replaces -march=native)
-CFLAGS   += -march=x86-64-v3
-CXXFLAGS += -march=x86-64-v3
-
-# Warnings
-CFLAGS   += -Wall -Wextra -Wpedantic -Wcast-qual -Wdouble-promotion -Wshadow -Wstrict-prototypes -Wpointer-arith -Wno-unused-function
-CXXFLAGS += -Wall -Wextra -Wpedantic -Wcast-qual -Wno-unused-function -Wno-unused-parameter
 
 # Platform-specific flags
 ifeq ($(TARGET_OS),Windows)
-    # Windows cross-compilation (MinGW)
     CFLAGS   += -D_WIN32 -D_WIN32_WINNT=0x0A00
     CXXFLAGS += -D_WIN32 -D_WIN32_WINNT=0x0A00
     LDFLAGS  += -static-libgcc -static-libstdc++
 else
-    # Linux native
     CFLAGS   += -pthread
     CXXFLAGS += -pthread
 endif
@@ -69,6 +60,7 @@ CMAKE_ARGS += -DGGML_OPENMP=OFF
 
 # Disable unnecessary features
 CMAKE_ARGS += -DLLAMA_CURL=OFF
+CMAKE_ARGS += -DLLAMA_HTTPLIB=OFF
 CMAKE_ARGS += -DLLAMA_BUILD_TESTS=OFF
 CMAKE_ARGS += -DLLAMA_BUILD_EXAMPLES=OFF
 CMAKE_ARGS += -DLLAMA_BUILD_SERVER=OFF
