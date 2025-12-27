@@ -1,0 +1,35 @@
+# target older distro for wider glibc compatibility
+FROM gcc:11-bookworm
+
+# Fix library path issues in GCC base image before installing other packages
+RUN rm -f /etc/ld.so.conf.d/000-local-lib.conf && ldconfig
+ENV LD_LIBRARY_PATH=
+
+# Enable ARM64 architecture for cross-compilation libraries
+RUN dpkg --add-architecture arm64
+
+# Install build dependencies, ARM64 cross-compilation toolchain, and Vulkan
+RUN apt-get update && apt-get install -y \
+    cmake \
+    libvulkan-dev \
+    libvulkan-dev:arm64 \
+    glslc \
+    git \
+    gcc-aarch64-linux-gnu \
+    g++-aarch64-linux-gnu \
+    binutils-aarch64-linux-gnu \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install latest Vulkan-Headers from Khronos for VK_EXT_layer_settings
+RUN git clone --depth 1 https://github.com/KhronosGroup/Vulkan-Headers.git /tmp/Vulkan-Headers && \
+    cmake -S /tmp/Vulkan-Headers -B /tmp/Vulkan-Headers/build -DCMAKE_INSTALL_PREFIX=/usr && \
+    cmake --install /tmp/Vulkan-Headers/build && \
+    rm -rf /tmp/Vulkan-Headers
+
+WORKDIR /build
+
+# Copy source files
+COPY . .
+
+# Build target with ARM64 cross-compiler
+CMD ["make", "libbinding.a", "CC=aarch64-linux-gnu-gcc", "CXX=aarch64-linux-gnu-g++", "AR=aarch64-linux-gnu-ar"]

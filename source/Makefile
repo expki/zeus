@@ -11,23 +11,39 @@ CXXV := $(shell $(CXX) --version | head -n 1)
 #
 # Cross-compilation detection
 # Usage: make libbinding.a CC=x86_64-w64-mingw32-gcc CXX=x86_64-w64-mingw32-g++
+#        make libbinding.a CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++
 #
 ifneq (,$(findstring mingw,$(CC)))
     TARGET_OS := Windows
+    TARGET_ARCH := x86_64
+else ifneq (,$(findstring aarch64,$(CC)))
+    TARGET_OS := Linux
+    TARGET_ARCH := aarch64
 else
     TARGET_OS := Linux
+    TARGET_ARCH := x86_64
 endif
 
 #
-# Compile flags - portable x86_64 baseline
+# Compile flags - architecture-specific baseline
 #
 # x86-64-v3 includes: x86-64-v2 + AVX, AVX2, BMI1, BMI2, F16C, FMA, LZCNT, MOVBE, XSAVE
 # This targets CPUs from ~2013 onwards (Intel Haswell, AMD Excavator)
 # AVX512 is handled via runtime detection by GGML
 #
+# ARMv8-A baseline for Raspberry Pi 4 (Cortex-A72) compatibility
+# GGML runtime detection handles DOTPROD, FP16, SVE for RPi 5+ (Cortex-A76)
+#
 INCLUDES = -I./llama.cpp/include -I./llama.cpp/ggml/include -I./llama.cpp/common -I./llama.cpp/src -I./llama.cpp/vendor -I.
-CFLAGS   = $(INCLUDES) -O3 -DNDEBUG -std=c11 -fPIC -march=x86-64-v3 -w
-CXXFLAGS = $(INCLUDES) -O3 -DNDEBUG -std=c++17 -fPIC -march=x86-64-v3 -w
+
+ifeq ($(TARGET_ARCH),aarch64)
+    ARCH_FLAGS = -march=armv8-a
+else
+    ARCH_FLAGS = -march=x86-64-v3
+endif
+
+CFLAGS   = $(INCLUDES) -O3 -DNDEBUG -std=c11 -fPIC $(ARCH_FLAGS) -w
+CXXFLAGS = $(INCLUDES) -O3 -DNDEBUG -std=c++17 -fPIC $(ARCH_FLAGS) -w
 LDFLAGS  =
 
 # Platform-specific flags
@@ -79,6 +95,16 @@ ifeq ($(TARGET_OS),Windows)
     CMAKE_ARGS += -DCMAKE_FIND_ROOT_PATH=/opt/llvm-mingw/x86_64-w64-mingw32
     CMAKE_ARGS += -DVulkan_INCLUDE_DIR=/opt/llvm-mingw/x86_64-w64-mingw32/include
     CMAKE_ARGS += -DVulkan_LIBRARY=/opt/llvm-mingw/x86_64-w64-mingw32/lib/libvulkan-1.a
+else ifeq ($(TARGET_ARCH),aarch64)
+    CMAKE_ARGS += -DCMAKE_SYSTEM_NAME=Linux
+    CMAKE_ARGS += -DCMAKE_SYSTEM_PROCESSOR=aarch64
+    CMAKE_ARGS += -DCMAKE_C_COMPILER=$(CC)
+    CMAKE_ARGS += -DCMAKE_CXX_COMPILER=$(CXX)
+    CMAKE_ARGS += -DGGML_CPU_ARM_ARCH=armv8-a
+    # Vulkan paths for ARM64 cross-compilation
+    CMAKE_ARGS += -DCMAKE_FIND_ROOT_PATH=/usr/aarch64-linux-gnu
+    CMAKE_ARGS += -DVulkan_INCLUDE_DIR=/usr/include
+    CMAKE_ARGS += -DVulkan_LIBRARY=/usr/lib/aarch64-linux-gnu/libvulkan.so
 endif
 
 #
@@ -87,12 +113,13 @@ endif
 $(info )
 $(info zeus portable build)
 $(info ===========================)
-$(info TARGET_OS:  $(TARGET_OS))
-$(info CC:         $(CCV))
-$(info CXX:        $(CXXV))
-$(info CFLAGS:     $(CFLAGS))
-$(info CXXFLAGS:   $(CXXFLAGS))
-$(info CMAKE_ARGS: $(CMAKE_ARGS))
+$(info TARGET_OS:   $(TARGET_OS))
+$(info TARGET_ARCH: $(TARGET_ARCH))
+$(info CC:          $(CCV))
+$(info CXX:         $(CXXV))
+$(info CFLAGS:      $(CFLAGS))
+$(info CXXFLAGS:    $(CXXFLAGS))
+$(info CMAKE_ARGS:  $(CMAKE_ARGS))
 $(info )
 
 #
