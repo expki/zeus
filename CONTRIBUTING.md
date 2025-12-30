@@ -41,7 +41,7 @@ source/llama.cpp/       # Upstream llama.cpp (git submodule)
 
 - Go 1.25+
 - x86_64 Linux or Windows
-  - Linux: libvulkan1 or libvulkan-dev
+  - Linux: libvulkan1 (executable) or libvulkan-dev (build)
 
 Pre-built static libraries are included in `lib/`. Most users can simply `go get github.com/expki/zeus`.
 

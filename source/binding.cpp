@@ -3,9 +3,11 @@
 #include "llama.h"
 #include "binding.h"
 #include "chat.h"
+#include <vulkan/vulkan.h>
 
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -269,6 +271,95 @@ static std::string get_thinking_close_tag(const std::string &text) {
 // Model Operations
 // ============================================================================
 
+// Minimum shared memory required for llama.cpp matrix multiplication (bytes)
+#define MIN_SHARED_MEMORY 32768
+
+// Check Vulkan viability by querying device properties (must be called before llama_backend_init)
+static bool check_vulkan_viable() {
+    static bool checked = false;
+    static bool viable = true;
+    if (checked) return viable;
+    checked = true;
+
+    // Create temporary Vulkan instance to query device properties
+    VkInstance instance = VK_NULL_HANDLE;
+    VkApplicationInfo appInfo = {};
+    appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+    appInfo.apiVersion = VK_API_VERSION_1_0;
+
+    VkInstanceCreateInfo createInfo = {};
+    createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+    createInfo.pApplicationInfo = &appInfo;
+
+    VkResult result = vkCreateInstance(&createInfo, nullptr, &instance);
+    if (result != VK_SUCCESS) {
+        if (g_verbose) {
+            fprintf(stderr, "binding: vkCreateInstance failed (%d), assuming no Vulkan\n", result);
+        }
+        viable = false;
+        return viable;
+    }
+
+    uint32_t deviceCount = 0;
+    vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr);
+    if (deviceCount == 0) {
+        if (g_verbose) {
+            fprintf(stderr, "binding: No Vulkan devices found\n");
+        }
+        vkDestroyInstance(instance, nullptr);
+        viable = false;
+        return viable;
+    }
+
+    std::vector<VkPhysicalDevice> devices(deviceCount);
+    vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data());
+
+    viable = false;
+    for (uint32_t i = 0; i < deviceCount; i++) {
+        VkPhysicalDeviceProperties props;
+        vkGetPhysicalDeviceProperties(devices[i], &props);
+
+        // Skip software renderers - ggml-vulkan doesn't use them
+        bool isSoftware = (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU) ||
+                          (strstr(props.deviceName, "llvmpipe") != nullptr) ||
+                          (strstr(props.deviceName, "lavapipe") != nullptr) ||
+                          (strstr(props.deviceName, "SwiftShader") != nullptr);
+        if (isSoftware) {
+            if (g_verbose) {
+                fprintf(stderr, "binding: Vulkan device %d: %s (software renderer, skipped)\n",
+                        i, props.deviceName);
+            }
+            continue;
+        }
+
+        uint32_t sharedMem = props.limits.maxComputeSharedMemorySize;
+        if (g_verbose) {
+            fprintf(stderr, "binding: Vulkan device %d: %s (shared memory: %u bytes)\n",
+                    i, props.deviceName, sharedMem);
+        }
+
+        if (sharedMem >= MIN_SHARED_MEMORY) {
+            viable = true;
+        }
+    }
+
+    vkDestroyInstance(instance, nullptr);
+
+    if (!viable) {
+        if (g_verbose) {
+            fprintf(stderr, "binding: Disabling Vulkan - insufficient shared memory (need %d bytes)\n", MIN_SHARED_MEMORY);
+        }
+        // Set invalid device index to force Vulkan initialization to fail gracefully
+#ifdef _WIN32
+        _putenv_s("GGML_VK_VISIBLE_DEVICES", "-1");
+#else
+        setenv("GGML_VK_VISIBLE_DEVICES", "-1", 1);
+#endif
+    }
+
+    return viable;
+}
+
 void *binding_load_model(const char *path, const binding_model_config *config) {
     if (path == nullptr || config == nullptr) {
         return nullptr;
@@ -278,6 +369,9 @@ void *binding_load_model(const char *path, const binding_model_config *config) {
         fprintf(stderr, "binding: loading model from '%s'\n", path);
     }
 
+    // Check Vulkan viability BEFORE backend init (env var only works before first init)
+    bool use_gpu = check_vulkan_viable();
+
     llama_backend_init();
 
     if (config->use_numa) {
@@ -286,7 +380,7 @@ void *binding_load_model(const char *path, const binding_model_config *config) {
 
     // Model parameters
     llama_model_params model_params = llama_model_default_params();
-    model_params.n_gpu_layers = config->gpu_layers;
+    model_params.n_gpu_layers = use_gpu ? config->gpu_layers : 0;
     model_params.use_mmap = config->use_mmap;
     model_params.use_mlock = config->use_mlock;
     model_params.main_gpu = config->main_gpu;

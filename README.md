@@ -79,8 +79,8 @@ CGO_ENABLED=1 go build -o myapp .
 
 - Go 1.25+
 - x86_64 Linux or Windows, ARM64 Linux (Raspberry Pi 4/5)
-  - Linux x86_64: libvulkan1
-  - Linux ARM64: libvulkan1 mesa-vulkan-drivers
+  - Linux x86_64: libvulkan1 (executable) or libvulkan-dev (build)
+  - Linux ARM64: libvulkan1 (executable) or libvulkan-dev (build), mesa-vulkan-drivers
 - Any GGUF model file
 
 ## Documentation

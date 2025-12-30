@@ -11,6 +11,15 @@ docker run --rm \
     sh -c "cd /build/example && CGO_ENABLED=1 GOOS=linux GOARCH=amd64 GOAMD64=v3 go build -o /output/example ."
 printf '\n=== Built zeus example for Linux x86_64 ===\n'
 
+# ==== Linux ARM64 ====
+printf '=== Building zeus example for Linux ARM64 ===\n\n'
+docker build -f ./example/Dockerfile.linux-arm64 -t zeus-linux-arm64-example .
+docker run --rm \
+    -v "$(pwd)/example/build:/output" \
+    zeus-linux-arm64-example \
+    sh -c "cd /build/example && CGO_ENABLED=1 GOOS=linux GOARCH=arm64 GOARM64=v8.0 CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++ go build -o /output/example-arm64 ."
+printf '\n=== Built zeus example for Linux ARM64 ===\n'
+
 # ==== Windows ====
 printf  '\n=== Building zeus example for Windows x86_64 ===\n\n'
 docker build -f ./example/Dockerfile.windows -t zeus-windows-example .

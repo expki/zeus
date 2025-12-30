@@ -44,15 +44,17 @@ endif
 
 ifdef DEBUG
     # Debug build - optimize for diagnostics
-    CFLAGS   = $(INCLUDES) -O0 -g3 -DDEBUG -std=c11 -fPIC $(ARCH_FLAGS) -fstack-protector-strong -w
-    CXXFLAGS = $(INCLUDES) -O0 -g3 -DDEBUG -std=c++17 -fPIC $(ARCH_FLAGS) -fstack-protector-strong -w
-    LDFLAGS  = -g
+    COMMON_CFLAGS  = -O0 -g3 -DDEBUG -fPIC $(ARCH_FLAGS) -fstack-protector-strong -w
+    COMMON_LDFLAGS = -g
 else
     # Production build - optimize for performance
-    CFLAGS   = $(INCLUDES) -Ofast -DNDEBUG -std=c11 -fPIC $(ARCH_FLAGS) -ffunction-sections -fdata-sections -fno-stack-protector -fvisibility=hidden -fmerge-all-constants -fno-ident -w
-    CXXFLAGS = $(INCLUDES) -Ofast -DNDEBUG -std=c++17 -fPIC $(ARCH_FLAGS) -ffunction-sections -fdata-sections -fno-stack-protector -fvisibility=hidden -fmerge-all-constants -fno-ident -w
-    LDFLAGS  = -Wl,--gc-sections -Wl,--as-needed -s
+    COMMON_CFLAGS  = -Ofast -DNDEBUG -fPIC $(ARCH_FLAGS) -ffunction-sections -fdata-sections -fno-stack-protector -fvisibility=hidden -fmerge-all-constants -fno-ident -w
+    COMMON_LDFLAGS = -Wl,--gc-sections -Wl,--as-needed -s
 endif
+
+CFLAGS   = $(INCLUDES) $(COMMON_CFLAGS) -std=c11
+CXXFLAGS = $(INCLUDES) $(COMMON_CFLAGS) -std=c++17
+LDFLAGS  = $(COMMON_LDFLAGS)
 
 # Platform-specific flags
 ifeq ($(TARGET_OS),Windows)
@@ -69,20 +71,25 @@ endif
 #
 CMAKE_ARGS =
 
-# Disable build cache warning
-CMAKE_ARGS += -DGGML_CCACHE=OFF
+# Build cache - enable ccache for debug builds
+ifdef DEBUG
+    CMAKE_ARGS += -DGGML_CCACHE=ON
+else
+    CMAKE_ARGS += -DGGML_CCACHE=OFF
+endif
 
 # LTO disabled - pre-built for distribution
 CMAKE_ARGS += -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF
 
-# Build type and LTO
+# Build type and flags - pass COMMON_CFLAGS to CMake
 ifdef DEBUG
     CMAKE_ARGS += -DCMAKE_BUILD_TYPE=Debug
 else
     CMAKE_ARGS += -DCMAKE_BUILD_TYPE=Release
-    CMAKE_ARGS += -DCMAKE_C_FLAGS="-ffunction-sections -fdata-sections -fvisibility=hidden -fmerge-all-constants -fno-ident"
-    CMAKE_ARGS += -DCMAKE_CXX_FLAGS="-ffunction-sections -fdata-sections -fvisibility=hidden -fmerge-all-constants -fno-ident"
 endif
+CMAKE_ARGS += -DCMAKE_C_FLAGS="$(COMMON_CFLAGS) -std=c11"
+CMAKE_ARGS += -DCMAKE_CXX_FLAGS="$(COMMON_CFLAGS) -std=c++17"
+CMAKE_ARGS += -DCMAKE_EXE_LINKER_FLAGS="$(COMMON_LDFLAGS)"
 
 # Disable native optimization (targets x86-64-v3, armv8-a)
 CMAKE_ARGS += -DGGML_NATIVE=OFF
