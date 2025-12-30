@@ -1,9 +1,5 @@
 # target older distro for wider glibc compatibility
-FROM gcc:11-bookworm
-
-# Fix library path issues in GCC base image before installing other packages
-RUN rm -f /etc/ld.so.conf.d/000-local-lib.conf && ldconfig
-ENV LD_LIBRARY_PATH=
+FROM gcc:bookworm
 
 # Install build dependencies and newer Vulkan headers from Khronos (VK_EXT_layer_settings support)
 RUN apt-get update && apt-get install -y \

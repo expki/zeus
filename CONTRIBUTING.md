@@ -51,7 +51,7 @@ Pre-built static libraries are included in `lib/`. Most users can simply `go get
 - Docker
 
 The build uses Docker containers with all necessary toolchains pre-configured:
-- **Linux builds**: `gcc:11-bookworm` with CMake and Vulkan SDK
+- **Linux builds**: `gcc:bookworm` with CMake and Vulkan SDK
 - **Windows cross-compilation**: `llvm-mingw` with CMake and Vulkan headers
 
 ## Building from Source

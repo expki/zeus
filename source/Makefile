@@ -49,9 +49,9 @@ ifdef DEBUG
     LDFLAGS  = -g
 else
     # Production build - optimize for performance
-    CFLAGS   = $(INCLUDES) -Ofast -DNDEBUG -std=c11 -fPIC $(ARCH_FLAGS) -flto -ffunction-sections -fdata-sections -fno-stack-protector -fvisibility=hidden -fmerge-all-constants -fno-ident -w
-    CXXFLAGS = $(INCLUDES) -Ofast -DNDEBUG -std=c++17 -fPIC $(ARCH_FLAGS) -flto -ffunction-sections -fdata-sections -fno-stack-protector -fvisibility=hidden -fmerge-all-constants -fno-ident -w
-    LDFLAGS  = -flto -Wl,--gc-sections -Wl,--as-needed -s
+    CFLAGS   = $(INCLUDES) -Ofast -DNDEBUG -std=c11 -fPIC $(ARCH_FLAGS) -ffunction-sections -fdata-sections -fno-stack-protector -fvisibility=hidden -fmerge-all-constants -fno-ident -w
+    CXXFLAGS = $(INCLUDES) -Ofast -DNDEBUG -std=c++17 -fPIC $(ARCH_FLAGS) -ffunction-sections -fdata-sections -fno-stack-protector -fvisibility=hidden -fmerge-all-constants -fno-ident -w
+    LDFLAGS  = -Wl,--gc-sections -Wl,--as-needed -s
 endif
 
 # Platform-specific flags
@@ -72,12 +72,13 @@ CMAKE_ARGS =
 # Disable build cache warning
 CMAKE_ARGS += -DGGML_CCACHE=OFF
 
+# LTO disabled - pre-built for distribution
+CMAKE_ARGS += -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF
+
 # Build type and LTO
 ifdef DEBUG
-    CMAKE_ARGS += -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF
     CMAKE_ARGS += -DCMAKE_BUILD_TYPE=Debug
 else
-    CMAKE_ARGS += -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON
     CMAKE_ARGS += -DCMAKE_BUILD_TYPE=Release
     CMAKE_ARGS += -DCMAKE_C_FLAGS="-ffunction-sections -fdata-sections -fvisibility=hidden -fmerge-all-constants -fno-ident"
     CMAKE_ARGS += -DCMAKE_CXX_FLAGS="-ffunction-sections -fdata-sections -fvisibility=hidden -fmerge-all-constants -fno-ident"

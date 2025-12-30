@@ -24,8 +24,16 @@ Zeus wraps llama.cpp with a clean Go API, handling all the complexity of CGO bin
 
 ### Add Library
 
+#### Standard: Windows 10+ / Ubuntu 24.04+ / Debian 12+ / Linux glibc 2.36+
+
 ```bash
-go get github.com/expki/zeus
+go get github.com/expki/zeus@latest
+```
+
+#### Legacy: Ubuntu 22.04 / Linux glibc 2.35
+
+```bash
+go get github.com/expki/zeus@ubuntu22.04
 ```
 
 ### Use Library

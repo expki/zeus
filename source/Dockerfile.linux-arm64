@@ -1,9 +1,5 @@
 # target older distro for wider glibc compatibility
-FROM gcc:11-bookworm
-
-# Fix library path issues in GCC base image before installing other packages
-RUN rm -f /etc/ld.so.conf.d/000-local-lib.conf && ldconfig
-ENV LD_LIBRARY_PATH=
+FROM gcc:bookworm
 
 # Enable ARM64 architecture for cross-compilation libraries
 RUN dpkg --add-architecture arm64
