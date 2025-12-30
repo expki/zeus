@@ -37,14 +37,22 @@ endif
 INCLUDES = -I./llama.cpp/include -I./llama.cpp/ggml/include -I./llama.cpp/common -I./llama.cpp/src -I./llama.cpp/vendor -I.
 
 ifeq ($(TARGET_ARCH),aarch64)
-    ARCH_FLAGS = -march=armv8-a
+    ARCH_FLAGS = -march=armv8-a -mtune=generic -mlow-precision-recip-sqrt -mlow-precision-sqrt -mlow-precision-div
 else
-    ARCH_FLAGS = -march=x86-64-v3
+    ARCH_FLAGS = -march=x86-64-v3 -mtune=generic -mrecip=all
 endif
 
-CFLAGS   = $(INCLUDES) -O3 -DNDEBUG -std=c11 -fPIC $(ARCH_FLAGS) -w
-CXXFLAGS = $(INCLUDES) -O3 -DNDEBUG -std=c++17 -fPIC $(ARCH_FLAGS) -w
-LDFLAGS  =
+ifdef DEBUG
+    # Debug build - optimize for diagnostics
+    CFLAGS   = $(INCLUDES) -O0 -g3 -DDEBUG -std=c11 -fPIC $(ARCH_FLAGS) -fstack-protector-strong -w
+    CXXFLAGS = $(INCLUDES) -O0 -g3 -DDEBUG -std=c++17 -fPIC $(ARCH_FLAGS) -fstack-protector-strong -w
+    LDFLAGS  = -g
+else
+    # Production build - optimize for performance
+    CFLAGS   = $(INCLUDES) -Ofast -DNDEBUG -std=c11 -fPIC $(ARCH_FLAGS) -flto -ffunction-sections -fdata-sections -fno-stack-protector -fvisibility=hidden -fmerge-all-constants -fno-ident -w
+    CXXFLAGS = $(INCLUDES) -Ofast -DNDEBUG -std=c++17 -fPIC $(ARCH_FLAGS) -flto -ffunction-sections -fdata-sections -fno-stack-protector -fvisibility=hidden -fmerge-all-constants -fno-ident -w
+    LDFLAGS  = -flto -Wl,--gc-sections -Wl,--as-needed -s
+endif
 
 # Platform-specific flags
 ifeq ($(TARGET_OS),Windows)
@@ -61,7 +69,21 @@ endif
 #
 CMAKE_ARGS =
 
-# Disable native optimization (we handle it with -march=x86-64-v3)
+# Disable build cache warning
+CMAKE_ARGS += -DGGML_CCACHE=OFF
+
+# Build type and LTO
+ifdef DEBUG
+    CMAKE_ARGS += -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF
+    CMAKE_ARGS += -DCMAKE_BUILD_TYPE=Debug
+else
+    CMAKE_ARGS += -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON
+    CMAKE_ARGS += -DCMAKE_BUILD_TYPE=Release
+    CMAKE_ARGS += -DCMAKE_C_FLAGS="-ffunction-sections -fdata-sections -fvisibility=hidden -fmerge-all-constants -fno-ident"
+    CMAKE_ARGS += -DCMAKE_CXX_FLAGS="-ffunction-sections -fdata-sections -fvisibility=hidden -fmerge-all-constants -fno-ident"
+endif
+
+# Disable native optimization (targets x86-64-v3, armv8-a)
 CMAKE_ARGS += -DGGML_NATIVE=OFF
 
 # GPU backends - Vulkan enabled, others disabled
@@ -70,6 +92,21 @@ CMAKE_ARGS += -DGGML_VULKAN=ON
 CMAKE_ARGS += -DGGML_HIP=OFF
 CMAKE_ARGS += -DGGML_METAL=OFF
 CMAKE_ARGS += -DGGML_SYCL=OFF
+
+# Vulkan debug options
+ifdef DEBUG
+    CMAKE_ARGS += -DGGML_VULKAN_DEBUG=ON
+    CMAKE_ARGS += -DGGML_VULKAN_VALIDATE=ON
+    CMAKE_ARGS += -DGGML_VULKAN_CHECK_RESULTS=OFF
+    CMAKE_ARGS += -DGGML_VULKAN_SHADER_DEBUG_INFO=ON
+    CMAKE_ARGS += -DGGML_VULKAN_MEMORY_DEBUG=OFF
+else
+    CMAKE_ARGS += -DGGML_VULKAN_DEBUG=OFF
+    CMAKE_ARGS += -DGGML_VULKAN_VALIDATE=OFF
+    CMAKE_ARGS += -DGGML_VULKAN_CHECK_RESULTS=OFF
+    CMAKE_ARGS += -DGGML_VULKAN_SHADER_DEBUG_INFO=OFF
+    CMAKE_ARGS += -DGGML_VULKAN_MEMORY_DEBUG=OFF
+endif
 
 # Disable OpenMP for standalone executable (uses native thread pool instead)
 CMAKE_ARGS += -DGGML_OPENMP=OFF
@@ -82,6 +119,8 @@ CMAKE_ARGS += -DLLAMA_BUILD_EXAMPLES=OFF
 CMAKE_ARGS += -DLLAMA_BUILD_SERVER=OFF
 CMAKE_ARGS += -DLLAMA_BUILD_TOOLS=OFF
 CMAKE_ARGS += -DBUILD_SHARED_LIBS=OFF
+CMAKE_ARGS += -DGGML_CPU_ALL_VARIANTS=OFF
+CMAKE_ARGS += -DGGML_BACKEND_DL=OFF
 
 # Cross-compilation CMake args
 ifeq ($(TARGET_OS),Windows)
@@ -130,7 +169,11 @@ $(info )
 .PHONY: cmake-build
 cmake-build: llama.cpp/include/llama.h
 	@mkdir -p build
-	cd build && CC="$(CC)" CXX="$(CXX)" cmake ../llama.cpp $(CMAKE_ARGS) && cmake --build . --config Release -j$$(nproc) || true
+ifdef DEBUG
+	cd build && CC="$(CC)" CXX="$(CXX)" cmake ../llama.cpp $(CMAKE_ARGS) && cmake --build . --config Debug -j$$(nproc)
+else
+	cd build && CC="$(CC)" CXX="$(CXX)" cmake ../llama.cpp $(CMAKE_ARGS) && cmake --build . --config Release -j$$(nproc)
+endif
 	@# Check that required libraries exist (either with or without lib prefix)
 	@test -f build/src/libllama.a -o -f build/src/llama.a || (echo "ERROR: llama library not built"; exit 1)
 	@test -f build/ggml/src/libggml-base.a -o -f build/ggml/src/ggml-base.a || (echo "ERROR: ggml-base library not built"; exit 1)
