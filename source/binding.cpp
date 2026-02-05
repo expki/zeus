@@ -1498,7 +1498,7 @@ binding_parse_result* binding_parse_tool_calls(
 
     try {
         // Set up syntax for parsing
-        common_chat_syntax syntax;
+        common_chat_parser_params syntax;
         syntax.format = static_cast<common_chat_format>(format);
         syntax.reasoning_format = COMMON_REASONING_FORMAT_NONE;
         syntax.reasoning_in_content = false;
