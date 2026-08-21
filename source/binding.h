@@ -394,11 +394,13 @@ typedef struct {
 // Parse tool calls from model output
 // response: the raw model output
 // format: the chat format to use for parsing (int32_t for forward compatibility)
+// parser: serialized PEG parser from binding_apply_chat_template_with_tools
 // is_partial: true if response may be incomplete (streaming)
 // Returns a parse result that must be freed with binding_free_parse_result
 binding_parse_result* binding_parse_tool_calls(
     const char* response,
     int32_t format,
+    const char* parser,
     bool is_partial
 );
 
@@ -430,6 +432,7 @@ typedef enum {
 typedef struct {
     const char* prompt;              // Formatted prompt with tools
     const char* grammar;             // GBNF grammar for output (may be empty)
+    const char* parser;              // Serialized PEG parser, pass back to binding_parse_tool_calls
     int32_t format;                  // Detected format (forward compatible with llama.cpp)
     bool grammar_lazy;               // Apply grammar only after trigger
     binding_grammar_trigger* grammar_triggers;  // Typed trigger array

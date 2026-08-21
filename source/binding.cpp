@@ -144,6 +144,7 @@ static llama_sampler *create_sampler(const llama_vocab *vocab, const binding_gen
 
     // Add penalties
     llama_sampler_chain_add(smpl, llama_sampler_init_penalties(
+        n_vocab,
         config->repeat_last_n,
         config->repeat_penalty,
         config->frequency_penalty,
@@ -381,8 +382,9 @@ void *binding_load_model(const char *path, const binding_model_config *config) {
     // Model parameters
     llama_model_params model_params = llama_model_default_params();
     model_params.n_gpu_layers = use_gpu ? config->gpu_layers : 0;
-    model_params.use_mmap = config->use_mmap;
-    model_params.use_mlock = config->use_mlock;
+    model_params.load_mode = config->use_mlock
+        ? (config->use_mmap ? LLAMA_LOAD_MODE_MMAP_MLOCK : LLAMA_LOAD_MODE_MLOCK)
+        : (config->use_mmap ? LLAMA_LOAD_MODE_MMAP : LLAMA_LOAD_MODE_NONE);
     model_params.main_gpu = config->main_gpu;
 
     // Tensor split (static storage - shared across models)
@@ -434,7 +436,8 @@ void *binding_load_model(const char *path, const binding_model_config *config) {
         if (adapter == nullptr) {
             fprintf(stderr, "binding: failed to load LoRA adapter from '%s'\n", config->lora_path);
         } else {
-            int32_t ret = llama_set_adapter_lora(ctx, adapter, 1.0f);
+            float scale = 1.0f;
+            int32_t ret = llama_set_adapters_lora(ctx, &adapter, 1, &scale);
             if (ret != 0) {
                 fprintf(stderr, "binding: failed to set LoRA adapter\n");
                 llama_adapter_lora_free(adapter);
@@ -1483,6 +1486,7 @@ binding_result binding_get_embeddings_batch(
 binding_parse_result* binding_parse_tool_calls(
     const char* response,
     int32_t format,
+    const char* parser,
     bool is_partial
 ) {
     auto* result = new binding_parse_result();
@@ -1502,8 +1506,10 @@ binding_parse_result* binding_parse_tool_calls(
         syntax.format = static_cast<common_chat_format>(format);
         syntax.reasoning_format = COMMON_REASONING_FORMAT_NONE;
         syntax.reasoning_in_content = false;
-        syntax.thinking_forced_open = false;
         syntax.parse_tool_calls = true;
+        if (parser != nullptr && parser[0] != '\0') {
+            syntax.parser.load(parser);
+        }
 
         // Parse the response
         common_chat_msg parsed = common_chat_parse(response, is_partial, syntax);
@@ -1562,7 +1568,11 @@ void binding_free_parse_result(binding_parse_result* result) {
 }
 
 const char* binding_chat_format_name(int32_t format) {
-    return common_chat_format_name(static_cast<common_chat_format>(format));
+    try {
+        return common_chat_format_name(static_cast<common_chat_format>(format));
+    } catch (...) {
+        return nullptr;
+    }
 }
 
 // ============================================================================
@@ -1582,6 +1592,7 @@ binding_chat_params* binding_apply_chat_template_with_tools(
     auto* result = new binding_chat_params();
     result->prompt = nullptr;
     result->grammar = nullptr;
+    result->parser = nullptr;
     result->format = 0;  // CONTENT_ONLY
     result->grammar_lazy = false;
     result->grammar_triggers = nullptr;
@@ -1666,6 +1677,7 @@ binding_chat_params* binding_apply_chat_template_with_tools(
         // Copy results
         result->prompt = strdup(params.prompt.c_str());
         result->grammar = strdup(params.grammar.c_str());
+        result->parser = strdup(params.parser.c_str());
         result->format = static_cast<int32_t>(params.format);
         result->grammar_lazy = params.grammar_lazy;
 
@@ -1732,6 +1744,7 @@ void binding_free_chat_params(binding_chat_params* params) {
 
     free((void*)params->prompt);
     free((void*)params->grammar);
+    free((void*)params->parser);
 
     if (params->grammar_triggers != nullptr) {
         for (int32_t i = 0; i < params->trigger_count; i++) {

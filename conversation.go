@@ -56,7 +56,7 @@ type Chat interface {
 type ChatConfig struct {
 	ChatTemplateConfig             // Embedded - Template, AddAssistant
 	AgentConfig        AgentConfig // Agent/tool configuration
-	ChatFormat         ChatFormat  // Tool call format for parsing (default: Hermes2Pro)
+	ChatFormat         ChatFormat  // Tool call format for parsing (auto-detected)
 }
 
 // ChatOption is a functional option for NewChat.
@@ -79,6 +79,7 @@ type chat struct {
 	config      ChatConfig
 	agentConfig AgentConfig // Agent/tool configuration
 	chatFormat  ChatFormat  // Tool call format for parsing
+	chatParser  string      // Serialized PEG parser from the applied tool template
 
 	// Session wrapping for KV cache efficiency
 	session       Session // Underlying session for token management
@@ -169,6 +170,7 @@ func (c *chat) GenerateSequence(ctx context.Context, userMessage string, opts ..
 			config:        c.config,
 			agentConfig:   c.agentConfig,
 			chatFormat:    c.chatFormat,
+			chatParser:    c.chatParser,
 			session:       c.session.Checkpoint(),
 			lastFormatted: c.lastFormatted,
 		}
@@ -253,6 +255,7 @@ func (c *chat) Checkpoint() Chat {
 		config:        c.config,
 		agentConfig:   c.agentConfig,
 		chatFormat:    c.chatFormat,
+		chatParser:    c.chatParser,
 		session:       c.session.Checkpoint(),
 		lastFormatted: c.lastFormatted,
 	}

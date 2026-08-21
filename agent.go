@@ -72,6 +72,7 @@ func (c *chat) GenerateWithTools(ctx context.Context, userMessage string, opts .
 			config:        c.config,
 			agentConfig:   c.agentConfig,
 			chatFormat:    c.chatFormat,
+			chatParser:    c.chatParser,
 			session:       c.session.Checkpoint(),
 			lastFormatted: c.lastFormatted,
 		}
@@ -104,7 +105,7 @@ func (c *chat) GenerateWithTools(ctx context.Context, userMessage string, opts .
 			}
 
 			// Parse for tool calls using native parser
-			parsed := parseToolCallsNative(response, c.chatFormat)
+			parsed := parseToolCallsNative(response, c.chatFormat, c.chatParser)
 			content := parsed.Content
 			toolCalls := parsed.ToolCalls
 
@@ -227,6 +228,7 @@ func (c *chat) generateWithToolPrompt(ctx context.Context, opts ...GenerateOptio
 
 	formatted := chatParams.Prompt
 	c.chatFormat = chatParams.Format
+	c.chatParser = chatParams.Parser
 
 	// Apply lazy grammar if available and properly configured.
 	// Lazy grammar only applies constraints after detecting trigger patterns,

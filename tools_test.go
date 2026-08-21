@@ -246,11 +246,10 @@ func TestChatFormatString(t *testing.T) {
 		expected string
 	}{
 		{ChatFormatContentOnly, "Content-only"},
-		{ChatFormatGeneric, "Generic"},
-		{ChatFormatHermes2Pro, "Hermes 2 Pro"},
-		{ChatFormatLlama3X, "Llama 3.x"},
-		{ChatFormatMistralNemo, "Mistral Nemo"},
-		{ChatFormatDeepSeekR1, "DeepSeek R1"},
+		{ChatFormatPEGSimple, "peg-simple"},
+		{ChatFormatPEGNative, "peg-native"},
+		{ChatFormatPEGGemma4, "peg-gemma4"},
+		{ChatFormatPEGMiniMaxM3, "peg-minimax-m3"},
 	}
 
 	for _, tt := range tests {
@@ -263,30 +262,35 @@ func TestChatFormatString(t *testing.T) {
 	}
 }
 
-func TestParseToolCallsNative_Hermes2Pro(t *testing.T) {
-	// Hermes 2 Pro format: <tool_call>{"name": "...", "arguments": {...}}</tool_call>
-	response := `I'll check the weather for you.
-<tool_call>{"name": "get_weather", "arguments": {"location": "Tokyo"}}</tool_call>`
+func TestParseToolCallsNative_RoundTripsTemplateParser(t *testing.T) {
+	m := testModel.(*model)
+	params, err := m.applyChatTemplateWithTools(
+		[]ChatMessage{{Role: RoleUser, Content: "weather in Tokyo?"}},
+		[]Tool{MockTool{
+			name:        "get_weather",
+			description: "Get the weather for a city",
+			params:      []ToolParameter{{Name: "location", Type: "string", Description: "City name", Required: true}},
+			handler:     func(ctx context.Context, args map[string]any) (string, error) { return "sunny", nil },
+		}},
+		ToolChoiceAuto, true,
+	)
+	if err != nil {
+		t.Fatalf("applyChatTemplateWithTools() error = %v", err)
+	}
+	if params.Parser == "" {
+		t.Fatal("ChatParams.Parser is empty, tool calls can never be parsed")
+	}
 
-	result := parseToolCallsNative(response, ChatFormatHermes2Pro)
-
-	if !strings.Contains(result.Content, "I'll check the weather") {
-		t.Errorf("content should contain text before tool call: %s", result.Content)
-	}
-	if len(result.ToolCalls) != 1 {
-		t.Fatalf("expected 1 tool call, got %d", len(result.ToolCalls))
-	}
-	if result.ToolCalls[0].Name != "get_weather" {
-		t.Errorf("tool call name = %q, want 'get_weather'", result.ToolCalls[0].Name)
-	}
-	if result.ToolCalls[0].Arguments["location"] != "Tokyo" {
-		t.Errorf("tool call arguments[location] = %v, want 'Tokyo'", result.ToolCalls[0].Arguments["location"])
+	response := "The weather in Tokyo is sunny."
+	result := parseToolCallsNative(response, params.Format, params.Parser)
+	if result.Content != response {
+		t.Errorf("content = %q, want %q", result.Content, response)
 	}
 }
 
 func TestParseToolCallsNative_NoToolCalls(t *testing.T) {
 	response := "This is a regular response without any tool calls."
-	result := parseToolCallsNative(response, ChatFormatHermes2Pro)
+	result := parseToolCallsNative(response, ChatFormatPEGNative, "")
 
 	if result.Content != response {
 		t.Errorf("content = %q, want %q", result.Content, response)
@@ -297,7 +301,7 @@ func TestParseToolCallsNative_NoToolCalls(t *testing.T) {
 }
 
 func TestParseToolCallsNative_Empty(t *testing.T) {
-	result := parseToolCallsNative("", ChatFormatHermes2Pro)
+	result := parseToolCallsNative("", ChatFormatPEGNative, "")
 
 	if result.Content != "" {
 		t.Errorf("content should be empty, got %q", result.Content)
@@ -307,16 +311,10 @@ func TestParseToolCallsNative_Empty(t *testing.T) {
 	}
 }
 
-func TestParseToolCallsNative_Generic(t *testing.T) {
-	// Generic format uses JSON objects
-	response := `{"tool_call": {"name": "get_weather", "arguments": {"location": "Paris"}}}`
-
-	result := parseToolCallsNative(response, ChatFormatGeneric)
-
-	// For generic format, tool calls may be parsed or content returned
-	// depending on how the native parser handles it
-	if result.Content == "" && len(result.ToolCalls) == 0 {
-		t.Error("expected either content or tool calls")
+func TestParseToolCallsNative_UnknownFormatDoesNotAbort(t *testing.T) {
+	f := ChatFormat(9999)
+	if got := f.String(); got != "unknown-9999" {
+		t.Errorf("ChatFormat(9999).String() = %q, want %q", got, "unknown-9999")
 	}
 }
 

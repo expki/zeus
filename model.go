@@ -2,9 +2,9 @@ package zeus
 
 /*
 #cgo CXXFLAGS: -I${SRCDIR}/source/llama.cpp/include -I${SRCDIR}/source/llama.cpp/ggml/include -I${SRCDIR}/source/llama.cpp/common -I${SRCDIR}/source
-#cgo linux,amd64 LDFLAGS: -L${SRCDIR}/lib/linux/ -lbinding -lcommon -lllama -lggml -lggml-vulkan -lggml-cpu -lggml-base -lvulkan -lm -lstdc++ -static-libgcc -static-libstdc++ -lsupc++
-#cgo linux,arm64 LDFLAGS: -L${SRCDIR}/lib/linux-arm64/ -lbinding -lcommon -lllama -lggml -lggml-vulkan -lggml-cpu -lggml-base -lvulkan -lm -lstdc++ -static-libgcc -static-libstdc++ -lsupc++
-#cgo windows,amd64 LDFLAGS: -L${SRCDIR}/lib/windows/ -lbinding -lcommon -lllama -lggml -lggml-vulkan -lggml-cpu -lggml-base -lvulkan-1 -lstdc++ -lwinpthread -static
+#cgo linux,amd64 LDFLAGS: -L${SRCDIR}/lib/linux/ -lbinding -lllama-common -lllama-common-base -lllama -lggml -lggml-vulkan -lggml-cpu -lggml-base -lvulkan -lm -lstdc++ -static-libgcc -static-libstdc++ -lsupc++
+#cgo linux,arm64 LDFLAGS: -L${SRCDIR}/lib/linux-arm64/ -lbinding -lllama-common -lllama-common-base -lllama -lggml -lggml-vulkan -lggml-cpu -lggml-base -lvulkan -lm -lstdc++ -static-libgcc -static-libstdc++ -lsupc++
+#cgo windows,amd64 LDFLAGS: -L${SRCDIR}/lib/windows/ -lbinding -lllama-common -lllama-common-base -lllama -lggml -lggml-vulkan -lggml-cpu -lggml-base -lvulkan-1 -lstdc++ -lwinpthread -static
 #include "source/binding.h"
 #include <stdlib.h>
 */

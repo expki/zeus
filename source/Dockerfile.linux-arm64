@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y \
     cmake \
     libvulkan-dev \
     libvulkan-dev:arm64 \
+    spirv-headers \
     glslc \
     git \
     gcc-aarch64-linux-gnu \

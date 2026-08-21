@@ -5,6 +5,7 @@ FROM gcc:bookworm
 RUN apt-get update && apt-get install -y \
     cmake \
     libvulkan-dev \
+    spirv-headers \
     glslc \
     git \
     && rm -rf /var/lib/apt/lists/*

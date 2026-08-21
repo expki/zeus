@@ -111,31 +111,11 @@ type ChatFormat int32
 // Known chat formats. This list may be incomplete - llama.cpp may support
 // additional formats that will work automatically.
 const (
-	ChatFormatContentOnly             ChatFormat = 0  // No tool calls, content only
-	ChatFormatGeneric                 ChatFormat = 1  // Generic format with JSON
-	ChatFormatMistralNemo             ChatFormat = 2  // Mistral Nemo format
-	ChatFormatMagistral               ChatFormat = 3  // Magistral format
-	ChatFormatLlama3X                 ChatFormat = 4  // Llama 3.x format
-	ChatFormatLlama3XWithBuiltinTools ChatFormat = 5  // Llama 3.x with builtin tools
-	ChatFormatDeepSeekR1              ChatFormat = 6  // DeepSeek R1 format
-	ChatFormatFireFunctionV2          ChatFormat = 7  // FireFunction v2 format
-	ChatFormatFunctionaryV32          ChatFormat = 8  // Functionary v3.2 format
-	ChatFormatFunctionaryV31Llama31   ChatFormat = 9  // Functionary v3.1 Llama 3.1 format
-	ChatFormatDeepSeekV31             ChatFormat = 10 // DeepSeek V3.1 format
-	ChatFormatHermes2Pro              ChatFormat = 11 // Hermes 2 Pro format (Qwen 2.5, Hermes 2/3)
-	ChatFormatCommandR7B              ChatFormat = 12 // Command R7B format
-	ChatFormatGranite                 ChatFormat = 13 // Granite format
-	ChatFormatGPTOSS                  ChatFormat = 14 // GPT-OSS format
-	ChatFormatSeedOSS                 ChatFormat = 15 // Seed-OSS format
-	ChatFormatNemotronV2              ChatFormat = 16 // Nemotron V2 format
-	ChatFormatApertus                 ChatFormat = 17 // Apertus format
-	ChatFormatLFM2WithJSONTools       ChatFormat = 18 // LFM2 with JSON tools format
-	ChatFormatGLM45                   ChatFormat = 19 // GLM 4.5 format
-	ChatFormatMiniMaxM2               ChatFormat = 20 // MiniMax-M2 format
-	ChatFormatKimiK2                  ChatFormat = 21 // Kimi K2 format
-	ChatFormatQwen3CoderXML           ChatFormat = 22 // Qwen3 Coder format
-	ChatFormatApriel15                ChatFormat = 23 // Apriel 1.5 format
-	ChatFormatXiaomiMiMo              ChatFormat = 24 // Xiaomi MiMo format
+	ChatFormatContentOnly  ChatFormat = 0 // No tool calls, content only
+	ChatFormatPEGSimple    ChatFormat = 1 // Generic tool call syntax
+	ChatFormatPEGNative    ChatFormat = 2 // Model's own native tool call syntax
+	ChatFormatPEGGemma4    ChatFormat = 3 // Gemma 4
+	ChatFormatPEGMiniMaxM3 ChatFormat = 4 // MiniMax-M3
 )
 
 // String returns the name of the chat format from llama.cpp.
@@ -155,7 +135,7 @@ type ParseResult struct {
 }
 
 // parseToolCallsNative uses llama.cpp's native parser to extract tool calls.
-func parseToolCallsNative(response string, format ChatFormat) ParseResult {
+func parseToolCallsNative(response string, format ChatFormat, parser string) ParseResult {
 	if response == "" {
 		return ParseResult{Content: response}
 	}
@@ -163,7 +143,10 @@ func parseToolCallsNative(response string, format ChatFormat) ParseResult {
 	cResponse := C.CString(response)
 	defer C.free(unsafe.Pointer(cResponse))
 
-	result := C.binding_parse_tool_calls(cResponse, C.int32_t(format), C.bool(false))
+	cParser := C.CString(parser)
+	defer C.free(unsafe.Pointer(cParser))
+
+	result := C.binding_parse_tool_calls(cResponse, C.int32_t(format), cParser, C.bool(false))
 	if result == nil {
 		return ParseResult{Content: response}
 	}
@@ -235,6 +218,7 @@ const (
 type ChatParams struct {
 	Prompt          string           // Formatted prompt with tools embedded
 	Grammar         string           // GBNF grammar for constraining output (may be empty)
+	Parser          string           // Serialized PEG parser, required to parse tool calls
 	Format          ChatFormat       // Detected chat format
 	GrammarLazy     bool             // Apply grammar only after trigger patterns
 	GrammarTriggers []GrammarTrigger // Typed patterns that activate grammar
@@ -377,6 +361,9 @@ func (m *model) applyChatTemplateWithTools(
 	}
 	if result.grammar != nil {
 		params.Grammar = C.GoString(result.grammar)
+	}
+	if result.parser != nil {
+		params.Parser = C.GoString(result.parser)
 	}
 
 	// Copy typed triggers

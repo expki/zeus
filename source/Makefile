@@ -58,8 +58,7 @@ LDFLAGS  = $(COMMON_LDFLAGS)
 
 # Platform-specific flags
 ifeq ($(TARGET_OS),Windows)
-    CFLAGS   += -D_WIN32 -D_WIN32_WINNT=0x0A00
-    CXXFLAGS += -D_WIN32 -D_WIN32_WINNT=0x0A00
+    COMMON_CFLAGS += -D_WIN32 -D_WIN32_WINNT=0x0A00
     LDFLAGS  += -static-libgcc -static-libstdc++
 else
     CFLAGS   += -pthread
@@ -120,12 +119,12 @@ endif
 CMAKE_ARGS += -DGGML_OPENMP=OFF
 
 # Disable unnecessary features
-CMAKE_ARGS += -DLLAMA_CURL=OFF
-CMAKE_ARGS += -DLLAMA_HTTPLIB=OFF
+CMAKE_ARGS += -DLLAMA_OPENSSL=OFF
 CMAKE_ARGS += -DLLAMA_BUILD_TESTS=OFF
 CMAKE_ARGS += -DLLAMA_BUILD_EXAMPLES=OFF
 CMAKE_ARGS += -DLLAMA_BUILD_SERVER=OFF
 CMAKE_ARGS += -DLLAMA_BUILD_TOOLS=OFF
+CMAKE_ARGS += -DLLAMA_BUILD_APP=OFF
 CMAKE_ARGS += -DBUILD_SHARED_LIBS=OFF
 CMAKE_ARGS += -DGGML_CPU_ALL_VARIANTS=OFF
 CMAKE_ARGS += -DGGML_BACKEND_DL=OFF
@@ -170,6 +169,17 @@ $(info CMAKE_ARGS:  $(CMAKE_ARGS))
 $(info )
 
 #
+# Static libraries CGO links against, as <build subdirectory>/<target name>
+#
+CGO_LIBS = src/llama \
+           ggml/src/ggml \
+           ggml/src/ggml-base \
+           ggml/src/ggml-cpu \
+           ggml/src/ggml-vulkan/ggml-vulkan \
+           common/llama-common \
+           common/llama-common-base
+
+#
 # Build targets
 #
 
@@ -182,9 +192,6 @@ ifdef DEBUG
 else
 	cd build && CC="$(CC)" CXX="$(CXX)" cmake ../llama.cpp $(CMAKE_ARGS) && cmake --build . --config Release -j$$(nproc)
 endif
-	@# Check that required libraries exist (either with or without lib prefix)
-	@test -f build/src/libllama.a -o -f build/src/llama.a || (echo "ERROR: llama library not built"; exit 1)
-	@test -f build/ggml/src/libggml-base.a -o -f build/ggml/src/ggml-base.a || (echo "ERROR: ggml-base library not built"; exit 1)
 
 # Compile binding.o
 binding.o: binding.cpp binding.h cmake-build
@@ -193,15 +200,13 @@ binding.o: binding.cpp binding.h cmake-build
 # Create libbinding.a and copy libraries for CGO
 libbinding.a: binding.o
 	$(AR) rcs libbinding.a binding.o
-	@# Copy libraries, handling both naming conventions
-	@if [ -f build/src/libllama.a ]; then cp build/src/libllama.a ./; else cp build/src/llama.a ./libllama.a; fi
-	@if [ -f build/ggml/src/libggml.a ]; then cp build/ggml/src/libggml.a ./; else cp build/ggml/src/ggml.a ./libggml.a; fi
-	@if [ -f build/ggml/src/libggml-base.a ]; then cp build/ggml/src/libggml-base.a ./; else cp build/ggml/src/ggml-base.a ./libggml-base.a; fi
-	@if [ -f build/ggml/src/libggml-cpu.a ]; then cp build/ggml/src/libggml-cpu.a ./; else cp build/ggml/src/ggml-cpu.a ./libggml-cpu.a; fi
-	@if [ -f build/common/libcommon.a ]; then cp build/common/libcommon.a ./; else cp build/common/common.a ./libcommon.a; fi
-	@if [ -f build/ggml/src/ggml-vulkan/libggml-vulkan.a ]; then cp build/ggml/src/ggml-vulkan/libggml-vulkan.a ./; \
-	 elif [ -f build/ggml/src/ggml-vulkan/ggml-vulkan.a ]; then cp build/ggml/src/ggml-vulkan/ggml-vulkan.a ./libggml-vulkan.a; \
-	 elif [ -f build/ggml/src/libggml-vulkan.a ]; then cp build/ggml/src/libggml-vulkan.a ./; fi
+	@# mingw omits the lib prefix, so accept both naming conventions
+	@for lib in $(CGO_LIBS); do \
+	    dir=build/$${lib%/*}; name=$${lib##*/}; \
+	    if   [ -f "$$dir/lib$$name.a" ]; then cp "$$dir/lib$$name.a" "./lib$$name.a"; \
+	    elif [ -f "$$dir/$$name.a"    ]; then cp "$$dir/$$name.a"    "./lib$$name.a"; \
+	    else echo "ERROR: $$name library not built"; exit 1; fi; \
+	done
 
 clean:
 	rm -rf *.o
